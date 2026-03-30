@@ -1,0 +1,27 @@
+name: Nightly Appointy Export
+
+on:
+  schedule:
+    - cron: '0 7 * * *'   # 7:00 AM UTC = 3:00 AM ET (runs every night)
+  workflow_dispatch:        # allows manual trigger from GitHub UI for testing
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Appointy export
+        env:
+          APPOINTY_COOKIES: ${{ secrets.APPOINTY_COOKIES }}
+        run: PYTHONPATH=. python scripts/appointy_export.py
