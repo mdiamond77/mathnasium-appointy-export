@@ -330,7 +330,7 @@ def login(session: requests.Session, cookie_string: str) -> None:
     Authenticate by injecting the browser cookie string directly.
     The cookie string is copied from Chrome DevTools and stored as a secret.
     """
-    session.headers["Cookie"] = cookie_string
+    session.headers["Cookie"] = cookie_string.strip()
 
 
 # ── Export ────────────────────────────────────────────────────────────────────
