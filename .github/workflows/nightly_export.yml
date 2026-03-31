@@ -2,7 +2,7 @@ name: Nightly Appointy Export
 
 on:
   schedule:
-    - cron: '0 1 * * *'   # 1:00 AM UTC = 9:00 PM ET (runs every night)
+    - cron: '45 2 * * *'   # 2:45 AM UTC = 10:45 PM ET (runs every night)
   workflow_dispatch:        # allows manual trigger from GitHub UI for testing
 
 jobs:
