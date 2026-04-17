@@ -30,14 +30,14 @@ Uses Playwright (headless Chromium) to log into Radius and download two reports,
 Files saved to `input/`. The Center column in each report is used downstream to split data per center.
 
 **`process.py`**  
-Reads downloaded files with pandas. Produces two data structures per center:
+Reads downloaded files with pandas. Filters each report by the "Center" column to produce separate data structures for Englewood and Teaneck:
 - **Level-up data** — current month and last month (see Level-Up Logic below).
 - **Birthday data** — name, birthday date, age.
 
 **`deliver.py`**  
-Sends one HTML email per center via Gmail SMTP (SSL, port 465):
-- Englewood email → Englewood CD
-- Teaneck email → Teaneck CD
+Loops over each center's processed data and sends one HTML email per center via Gmail SMTP (SSL, port 465). The center name in the email subject and greeting is populated automatically:
+- Englewood data → email to Englewood CD
+- Teaneck data → email to Teaneck CD
 - Matt copied on both
 
 No attachment. No Drive upload.
