@@ -55,7 +55,7 @@ Center assignment: determined by the `Center` field. Values containing "Englewoo
 
 ## Output Format
 
-**Filename:** `Student_Page_Goals_YYYY_MM.xlsx`
+**Filename:** `[Month] Page Goals.xlsx` (e.g. `May Page Goals.xlsx`)
 
 **Two worksheets:** Englewood, Teaneck — each sorted alphabetically by student name.
 
@@ -79,10 +79,13 @@ Center assignment: determined by the `Center` field. Values containing "Englewoo
 
 ## Delivery
 
-**Email recipients:**
+**Email recipients (success):**
 - Matt Diamond — matt.diamond@mathnasium.com
-- Elizabeth Anacleto (Teaneck Center Director)
-- Samba Taha (Englewood Center Director)
+- Elizabeth Anacleto (Teaneck Center Director) — teaneck@mathnasium.com
+- Samba Taha (Englewood Center Director) — englewood@mathnasium.com
+
+**Email recipients (failure):**
+- Matt Diamond — matt.diamond@mathnasium.com only
 
 **Google Drive folder:** `1NcVaeoFtyJkJfy6-GtLrlMxoN5cT_gyY`  
 Folder is shared with recipients. Upload uses a Google service account; the resulting Drive link is stored in `run_log.json`.
@@ -100,7 +103,7 @@ Folder is shared with recipients. Upload uses a Google service account; the resu
     "trigger": "auto",
     "month": "2026-03",
     "status": "success",
-    "output_file": "Student_Page_Goals_2026_03.xlsx",
+    "output_file": "April Page Goals.xlsx",
     "drive_link": "https://drive.google.com/...",
     "error": null
   }
@@ -115,7 +118,7 @@ After each GitHub Actions run, the workflow commits the updated `run_log.json` b
 
 ## Scheduling
 
-**GitHub Actions cron:** 1st of every month at 11:00 AM UTC (6:00 AM ET).  
+**GitHub Actions cron:** 1st of every month at 15:00 UTC (11:00 AM ET).  
 **`workflow_dispatch`:** enabled so the workflow can be triggered manually from GitHub if needed.  
 **Dashboard button:** runs the script locally (same `main.py`), streams live output in the browser output panel, writes to `run_log.json` directly.
 
@@ -166,9 +169,10 @@ All secrets are added to the `mathnasium-page-goals` repo:
 
 ## Error Handling
 
-- If the Radius download fails, log the error and exit without sending email.
+- If the Radius download fails, log the error, email matt.diamond@mathnasium.com with the error details, and exit.
 - If processing fails for a student, log a warning and continue with remaining students.
-- If Drive upload fails, still send the email with the attachment.
+- If the overall process fails, email matt.diamond@mathnasium.com only (not the center directors).
+- If Drive upload fails, still send the success email with the file attached.
 - All errors written to `run_log.json` and printed to stdout (visible in dashboard output panel and GitHub Actions logs).
 
 ---
