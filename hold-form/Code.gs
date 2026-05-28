@@ -113,9 +113,56 @@ function onOpen() {
     .addItem('📊  Refresh Dashboard',               'buildDashboard')
     .addSeparator()
     .addItem('🔧  Setup Workbook (first-time)',     'setupWorkbook')
+    .addItem('🔄  Migrate Columns (run once after update)', 'migrateColumnsV2')
     .addItem('⏱  Install Triggers',               'installTriggers')
     .addItem('🗑  Remove All Triggers',             'removeTriggers')
     .addToUi();
+}
+
+/**
+ * One-time migration: inserts the 3 new in-contract columns into existing sheets.
+ * Run this ONCE after pasting the updated Code.gs into an existing workbook.
+ * Safe to run only once — running it a second time will insert duplicate columns.
+ */
+function migrateColumnsV2() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+
+  // ── INPUT tab ──────────────────────────────────────────────────────────────
+  // Insert 3 cols at H (col 8), pushing Send Email? and Radius Updated to K and L
+  const inputSh = ss.getSheetByName(TAB_INPUT);
+  if (inputSh) {
+    // Safety check: abort if col H header is already "In Contract?"
+    if (inputSh.getRange(1, 8).getValue() === 'In Contract?') {
+      ui.alert('Already migrated', 'Column H is already "In Contract?" — migration was already run. No changes made.', ui.ButtonSet.OK);
+      return;
+    }
+    inputSh.insertColumnsBefore(8, 3);
+    inputSh.getRange(1, 8).setValue('In Contract?');
+    inputSh.getRange(1, 9).setValue('Charged Month(s)');
+    inputSh.getRange(1, 10).setValue('Credit Month(s)');
+    formatInputTab(ss);
+  }
+
+  // ── MASTER_HOLDS tab ───────────────────────────────────────────────────────
+  // Insert 3 cols at col 12 (after Notes at col 11)
+  const masterSh = ss.getSheetByName(TAB_MASTER);
+  if (masterSh) {
+    masterSh.insertColumnsBefore(12, 3);
+    masterSh.getRange(1, 12).setValue('In Contract?');
+    masterSh.getRange(1, 13).setValue('Charged Month(s)');
+    masterSh.getRange(1, 14).setValue('Credit Month(s)');
+    formatMasterTab(ss);
+  }
+
+  ui.alert(
+    '✓ Migration Complete',
+    'New columns added:\n\n' +
+    'INPUT tab:        In Contract? (H) | Charged Month(s) (I) | Credit Month(s) (J)\n' +
+    'MASTER_HOLDS tab: In Contract? | Charged Month(s) | Credit Month(s) — after Notes\n\n' +
+    'Next: Deploy > Manage deployments → New version → Deploy',
+    ui.ButtonSet.OK
+  );
 }
 
 
