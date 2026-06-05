@@ -752,6 +752,7 @@ function sendInitialEmail(holdData, settings) {
     {
       htmlBody: getInitialEmailBody(holdData, settings),
       name:     settings['FROM_NAME'] || 'Mathnasium',
+      replyTo:  settings['CENTER_EMAIL'] || '',
       bcc:      settings['BCC_EMAIL'] || ''
     }
   );
@@ -772,6 +773,7 @@ function sendReminderEmail(holdData, settings, reminderNum) {
     {
       htmlBody: getReminderEmailBody(holdData, settings, reminderNum),
       name:     settings['FROM_NAME'] || 'Mathnasium',
+      replyTo:  settings['CENTER_EMAIL'] || '',
       cc,
       bcc:      bccEmail
     }
