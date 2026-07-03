@@ -794,6 +794,9 @@ function checkReminderStatuses() {
 
   if (!masterSh || masterSh.getLastRow() < 2) return;
 
+  // Hold IDs still present in INPUT — deleted rows are treated as cancelled
+  const activeIds = getActiveInputHoldIds(ss);
+
   const data = masterSh.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
     const row    = data[i];
@@ -801,6 +804,7 @@ function checkReminderStatuses() {
     const sentTs = row[MC.EMAIL_SENT_TS];
 
     if (signed === 'YES' || !sentTs) continue;
+    if (!activeIds.has(String(row[MC.HOLD_ID]).trim())) continue; // deleted from INPUT
 
     const hrs = (now - new Date(sentTs)) / 3600000;
     const r1  = row[MC.REMINDER_1];
@@ -823,6 +827,13 @@ function checkReminderStatuses() {
       logError('checkReminderStatuses', err.message, `Hold ID: ${hd.holdId}`);
     }
   }
+}
+
+function getActiveInputHoldIds(ss) {
+  const inputSh = ss.getSheetByName(TAB_INPUT);
+  if (!inputSh || inputSh.getLastRow() < 2) return new Set();
+  const ids = inputSh.getRange(2, IC.HOLD_ID + 1, inputSh.getLastRow() - 1, 1).getValues();
+  return new Set(ids.map(r => String(r[0]).trim()).filter(Boolean));
 }
 
 function masterRowToHoldData(row) {
