@@ -99,7 +99,7 @@ Shows: center name, student name, a short intro (varies by TYPE — see Email Te
   - Time dropdown — populated based on the chosen day, computed server-side from SETTINGS: 30-minute increments from that day's open time up to **1 hour before** that day's close time (e.g. Englewood Sunday: 10:00, 10:30, 11:00, 11:30, 12:00 — closes at 1:00, so 12:00 is the last option)
   - Optional free-text note: "Anything else about your flexibility on this day?"
 - **Preference 2 (optional):** same three fields, parent may leave entirely blank
-- A disclaimer near the fields and in both emails: *these are preferences, not guarantees — if we need to offer a different day or time, we'll be in touch.*
+- A disclaimer near the fields and in both emails, written warmly rather than as legal boilerplate: *"We'll do our best to lock in exactly what you choose. If scheduling gets tight and we need to offer a slightly different day or time, we'll reach out personally to find something that works — nothing is finalized without talking to you first."*
 
 On submit (`processWebSubmission`):
 - Validates Preference 1 is filled in (day + time); Preference 2 fields are optional but if either day or time is given, both are required together.
