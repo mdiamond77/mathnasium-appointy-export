@@ -26,6 +26,7 @@ One Sheet + Apps Script Web App per center, deployed the same way as hold-form: 
 | **MASTER_REQUESTS** | Auto-filled canonical record of all requests from both INPUT tabs |
 | **SETTINGS** | Center config, email addresses, center hours, form/web app URL |
 | **DASHBOARD** | Auto-refreshed summary + working list of preferences received |
+| **SLOT_DEMAND** | Auto-refreshed grid of how many students land in each half-hour slot, for staffing/capacity planning |
 | **ERROR_LOG** | Script errors logged here for troubleshooting |
 
 ## INPUT Tabs
@@ -158,6 +159,26 @@ Single combined `DASHBOARD` tab (not split into separate tabs per type), refresh
 2. **Schedule Preferences Received** — the working table a CD uses to build the fall schedule: Student, Type, Pref 1 Day/Time, Pref 1 Note, Pref 2 Day/Time, Pref 2 Note, Responded On.
 3. **Awaiting Response** — Student, Type, Parent, Email Sent date, days elapsed — so a CD can see who to chase or call directly.
 
+## SLOT_DEMAND Tab
+
+A grid showing how many students land in each half-hour slot, so a CD can see where staffing coverage is needed most as fall requests come in.
+
+**Both preferences count, as real demand, not primary/backup.** Most students attend twice a week, so Preference 1 and Preference 2 represent two independent, real attendance commitments rather than a ranked choice. Every submitted preference (Pref 1 and, if given, Pref 2) is counted.
+
+**Occupancy rule:** a session is treated as occupying two consecutive half-hour blocks starting at the chosen time — e.g. a 3:30 preference counts toward both the 3:30 slot and the 4:00 slot.
+
+**Layout:** one grid, days (Sunday, Monday, Tuesday, Wednesday, Thursday) as columns, half-hour time slots as rows. The row range is the union of that center's Sunday and weekday operating windows, extended one half-hour past the latest selectable start time so the occupancy spillover always has a row to land in. Cells outside a given day's actual operating hours are left blank (not zero), so closed windows don't read as "zero demand."
+
+Row range example — **Englewood**: Sunday 10:00–12:30 (opens 10:00, closes 1:00, so the last occupied block starts 12:00 and spills into 12:30); Monday–Thursday 3:30–6:30 (closes 7:00, last block starts 6:00, spills into 6:30).
+
+Row range example — **Teaneck**: Sunday 10:00–1:30; Monday–Thursday 3:30–7:00.
+
+**Counting logic:** for every MASTER_REQUESTS row with Responded = YES, for each of Pref1 and Pref2 that's filled in, increment the count at `[day, start time]` and `[day, start time + 30 min]`.
+
+**Scope:** totals combine both Returning-from-Hold and Continuing-Student requests — this view is about total staffing demand, not audience breakdown (Type breakdown already lives in DASHBOARD).
+
+Rebuilt by `buildSlotDemand()`, called from the same daily trigger and the same "Refresh Dashboard" menu action as `buildDashboard()` (one refresh action updates both tabs).
+
 ## Triggers
 
 Same pattern as `hold-form`, installed via **⚙ School Year Schedule > Install Triggers**:
@@ -166,7 +187,7 @@ Same pattern as `hold-form`, installed via **⚙ School Year Schedule > Install 
 |---|---|---|
 | Process new rows (both INPUT tabs) | `processDirectorInputs` | Every 1 hour |
 | Check reminders | `checkReminderStatuses` | Daily |
-| Refresh dashboard | `buildDashboard` | Daily |
+| Refresh dashboard & slot demand | `buildDashboard`, `buildSlotDemand` | Daily |
 | Form submission | `doPost` / `processWebSubmission` | On web app submit |
 
 Menu (`onOpen`): **⚙ School Year Schedule** with Process New Rows, Check Reminder Statuses, Refresh Dashboard, Setup Workbook (first-time), Install Triggers, Remove All Triggers — same structure as `hold-form`'s menu.
