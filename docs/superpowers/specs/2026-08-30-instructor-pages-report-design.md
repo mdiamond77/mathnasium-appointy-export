@@ -135,8 +135,13 @@ Given an instructor, a center, and a date range:
 2. **Sessions** — count of productive sessions.
 3. **≤3 pg** — count of low sessions.
 4. **≤3 pg %** — `low sessions / productive sessions`, shown as a percent, 0 dp.
-5. **Zero/blank** — count of zero/blank sessions (Detail tab only + Snapshot footnote).
-6. **Students** — count of distinct students with ≥1 productive session (Detail tab).
+5. **Co-taught %** — productive sessions with more than one named instructor ÷ productive
+   sessions. Multi-instructor sessions still credit each named instructor in full; this
+   metric just exposes how blended a given instructor's numbers are. On the Snapshot it
+   is one season-wide column (`season_start → run date`); on Monthly it is a per-month
+   section; on Detail it is per-period (`Co-taught Sessions` + `Co-taught %`).
+6. **Zero/blank** — count of zero/blank sessions (Detail tab only + Snapshot footnote).
+7. **Students** — count of distinct students with ≥1 productive session (Detail tab).
 
 An instructor with 0 productive sessions in a period shows blank cells for that period
 (not `0.00`).
@@ -197,8 +202,9 @@ period appears in both blocks, counting only that center's sessions.
 
 ### Tab 1 — Snapshot
 
-Center summary row, then one row per instructor. Five period column-groups, each with
-four sub-columns:
+Columns 1–2 are **Instructor** and **Co-taught %** (season-wide, spanning the header
+stack). Then a center summary row and one row per instructor. Five period
+column-groups, each with four sub-columns:
 
 | Sub-column | Meaning |
 |---|---|
@@ -212,16 +218,18 @@ four sub-columns:
 smaller subtitle line beneath.
 
 Footnote row under each center block: total zero/blank sessions excluded, per period.
+Freeze panes at `C1` (Instructor + Co-taught % stay visible when scrolling right).
 
 ### Tab 2 — Monthly
 
-Four side-by-side sections, each a full grid of **center summary row + one row per
+Five side-by-side sections, each a full grid of **center summary row + one row per
 instructor** × **one column per calendar month, April → current**:
 
 1. **AVG PAGES** — Pages/Session, blank if no sessions
 2. **# SESSIONS** — productive session count
 3. **# ≤3 PAGES** — low session count
 4. **% ≤3 PAGES** — low ÷ productive, percent
+5. **% CO-TAUGHT** — multi-instructor ÷ productive, percent
 
 Sections are separated by a blank spacer column and a section-title band. No more
 `avg (n)` parentheses.
@@ -240,7 +248,7 @@ stacked. Columns:
 
 `Center | Instructor | Period Type | Period Label | Period Start | Period End |
 Pages/Session | Productive Sessions | Zero/Blank Sessions | Low Sessions (≤3) |
-Low Session % | Distinct Students`
+Low Session % | Co-taught Sessions | Co-taught % | Distinct Students`
 
 Matt can pivot / filter this himself.
 
