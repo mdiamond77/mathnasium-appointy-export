@@ -253,8 +253,12 @@ The raw DWP download, all columns, unmodified — for spot-checking any number.
 - Header rows: blue background (`#4472C4`), white bold, centered.
 - Center divider rows: dark fill, white bold, merged across the used width.
 - Snapshot period groups: alternating light fills to separate the five groups visually.
-- Freeze the header row and the instructor-name column on every tab.
-- Column widths: instructor 26, numeric 10–12.
+- Pooled center summary rows: bold.
+- Freeze the **instructor-name column** on every analysis tab (`freeze_panes = "B1"`).
+  Row freezing is not used — each tab stacks a Teaneck block over an Englewood block,
+  so there is no single header row to pin.
+- Column widths: instructor 30 (values are often full names or email addresses),
+  numeric 11–13.
 
 ---
 
@@ -319,11 +323,11 @@ Added to the `mathnasium-instructor-pages` repo (copy values from existing repos
 - Snapshot windows: "Last Week" excludes the current partial week; "Last Month" is the
   last *complete* month; the 2- and 3-month windows are contiguous complete months.
 - Zero, blank, and non-numeric `Pages Completed` excluded from averages but counted.
-- Low-session (≤3) count includes 3, excludes 0 and 4.
-- Pages/Session vs Student Avg diverge correctly when one student has many sessions.
+- Low-session (≤3) count includes 3, excludes 0 and 4; `≤3 pg %` = low ÷ productive.
 - Center split; "Englewood, Teaneck Virtual" → Englewood.
 - Blank instructor → `(Unassigned)` row.
-- Multi-instructor field → session counted under each named instructor.
+- Multi-instructor field → session counted under each named instructor in their own row,
+  but **once** in the pooled center summary (dedupe on `session_id`).
 - Instructor with 0 productive sessions in a period → blank cells, not `0.00`.
 
 `tests/test_run_log.py` — copied from page-goals.
@@ -356,5 +360,18 @@ Added to the `mathnasium-instructor-pages` repo (copy values from existing repos
 - Google Drive archiving of the workbook.
 - Center directors as recipients.
 - Alerting / thresholds (e.g. flag an instructor trending down).
-- Comparisons against student page *goals* from the page-goals automation.
+- Comparisons against student page *goals* from the page-goals automation (rejected —
+  goals are instructor-set, so attainment is circular).
 - Any instructor metric other than pages (attendance, punctuality, retention).
+
+## Future analysis ideas (control for student mix)
+
+Raw pages/session is biased by which students an instructor is assigned. Two ways to
+neutralize that, both feasible from the DWP export, both deferred to a later revision:
+
+1. **Same-student comparison** — for students who worked with more than one instructor
+   in the period, compare each student's pages under each instructor. A within-student
+   contrast removes the mix effect entirely.
+2. **Same-level comparison** — the DWP export has a `Card level` column. Bucket sessions
+   by student level and compare each instructor against the center-wide average *for
+   that level*, so a beginner-heavy caseload isn't penalized.
