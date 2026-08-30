@@ -132,16 +132,36 @@ average but their count is reported (Detail tab, and as a footnote on the Snapsh
 Given an instructor, a center, and a date range:
 
 1. **Pages/Session** — `sum(pages) / count` over productive sessions in range, 2 dp.
-2. **Student Avg** — for each distinct student with ≥1 productive session in range under
-   this instructor, take that student's mean pages over their productive sessions; then
-   average those per-student means (every student weighted equally), 2 dp.
-3. **Sessions** — count of productive sessions.
-4. **≤3 pg** — count of low sessions.
+2. **Sessions** — count of productive sessions.
+3. **≤3 pg** — count of low sessions.
+4. **≤3 pg %** — `low sessions / productive sessions`, shown as a percent, 0 dp.
 5. **Zero/blank** — count of zero/blank sessions (Detail tab only + Snapshot footnote).
 6. **Students** — count of distinct students with ≥1 productive session (Detail tab).
 
 An instructor with 0 productive sessions in a period shows blank cells for that period
 (not `0.00`).
+
+### Center summary row
+
+Each center block on the Snapshot, Monthly, and Weekly tabs opens with a **pooled
+center-wide row** (label `▸ TEANECK — all instructors` / `▸ ENGLEWOOD — all
+instructors`), computed across every session at that center in the period (not an
+average of instructor averages):
+
+- Pages/Session — `sum(all productive pages) / count(all productive sessions)`
+- Sessions — sum of productive sessions (a total)
+- ≤3 pg — sum of low sessions (a total)
+- ≤3 pg % — `sum(low) / sum(productive)`
+
+Multi-instructor sessions are counted **once** in the center pooled figures (dedupe on
+the underlying session), even though they credit each named instructor in that
+instructor's own row.
+
+> **Dropped in the Phase 1.1 revision:** the "Student Avg" (average of student averages)
+> metric — removed from every tab. **Not adopted:** a "% of page goal" metric — page
+> goals are set by the instructors themselves from each student's recent pace, so
+> attainment against them is circular. A future revision may instead compare instructors
+> on *the same students* (students who worked with more than one instructor).
 
 ### Periods
 
@@ -177,28 +197,41 @@ period appears in both blocks, counting only that center's sessions.
 
 ### Tab 1 — Snapshot
 
-One row per instructor. Five period column-groups (This Month So Far, Last Week,
-Last Month, Last 2 Months, Last 3 Months), each with four sub-columns:
+Center summary row, then one row per instructor. Five period column-groups, each with
+four sub-columns:
 
 | Sub-column | Meaning |
 |---|---|
 | Pages/Sess | productive-session average |
-| Stu Avg | average of student averages |
 | Sessions | productive session count |
 | ≤3 pg | low session count |
+| ≤3 pg % | low sessions ÷ productive sessions |
+
+**Group headers are the actual date ranges** (`Aug 23 – Aug 29`, `Jul 1 – Jul 31`,
+`Jun 1 – Jul 31`, …) with the plain-English label (`Last Week`, `Last Month`, …) as a
+smaller subtitle line beneath.
 
 Footnote row under each center block: total zero/blank sessions excluded, per period.
 
 ### Tab 2 — Monthly
 
-One row per instructor. One column per calendar month, April → current. Each cell:
-`avg (n)` where `avg` = Pages/Session and `n` = productive session count. Blank if no
-sessions.
+Four side-by-side sections, each a full grid of **center summary row + one row per
+instructor** × **one column per calendar month, April → current**:
+
+1. **AVG PAGES** — Pages/Session, blank if no sessions
+2. **# SESSIONS** — productive session count
+3. **# ≤3 PAGES** — low session count
+4. **% ≤3 PAGES** — low ÷ productive, percent
+
+Sections are separated by a blank spacer column and a section-title band. No more
+`avg (n)` parentheses.
 
 ### Tab 3 — Weekly
 
-Same as Monthly but one column per Sun–Sat week since the first week of April.
-Cell: `avg (n)`. Wide sheet; header row frozen, instructor column frozen.
+Unchanged from Phase 1 except for the new center summary row: center row + one row per
+instructor × one column per Sun–Sat week since the first week of April. Cell: `avg (n)`
+where `avg` = Pages/Session and `n` = productive session count. Blank if no sessions.
+Instructor column frozen.
 
 ### Tab 4 — Detail (long format)
 
@@ -206,8 +239,8 @@ The analytical source — one row per (center, instructor, period). Both period 
 stacked. Columns:
 
 `Center | Instructor | Period Type | Period Label | Period Start | Period End |
-Pages/Session | Student Avg | Productive Sessions | Zero/Blank Sessions |
-Low Sessions (≤3) | Distinct Students`
+Pages/Session | Productive Sessions | Zero/Blank Sessions | Low Sessions (≤3) |
+Low Session % | Distinct Students`
 
 Matt can pivot / filter this himself.
 
