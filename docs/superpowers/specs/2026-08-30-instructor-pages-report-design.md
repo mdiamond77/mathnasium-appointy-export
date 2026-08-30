@@ -7,17 +7,27 @@
 
 ## Overview
 
-A weekly automation that downloads the Digital Workout Plan (DWP) report from Radius,
+A report (ultimately a weekly automation) that downloads the Digital Workout Plan (DWP) report from Radius,
 calculates how many pages the average student completes **per instructor**, and delivers
 a formatted Excel workbook by email. The workbook shows each instructor's numbers for a
 set of recent calendar-aligned windows (the "Snapshot") plus full week-by-week and
 month-by-month history back to April.
 
-First milestone is a single on-demand run against April → today so Matt can look at what
-the data shows before the weekly schedule is switched on.
+## Phasing
 
-Phase 2 (not in this spec): a compact per-instructor block for the "Instructors" box of
-the daily center summary email.
+**Phase 1 — this build.** Repo scaffold, `download.py`, `process.py`, the Excel workbook,
+and a local `main.py` run. Deliverable: one workbook covering **April 1 → today**, handed
+to Matt. No email automation, no cron, no dashboard row yet. Includes the live Radius
+check to confirm the instructor column. Matt reviews the workbook and confirms the
+numbers look right before Phase 2.
+
+**Phase 2 — after Matt approves the Phase 1 output.** `deliver.py` (weekly email to Matt),
+GitHub Actions cron (Mondays 13:00 UTC), and the `/reports` dashboard row + "Run Now"
+button. This spec already describes all three; they just don't get built until the
+output is trusted.
+
+**Phase 3 — later, separate spec.** A compact per-instructor block for the "Instructors"
+box of the daily center summary email.
 
 ---
 
@@ -215,7 +225,7 @@ The raw DWP download, all columns, unmodified — for spot-checking any number.
 
 ---
 
-## Delivery
+## Delivery (Phase 2 — not built until the Phase 1 workbook is approved)
 
 **Email (success and failure):** `matt.diamond@mathnasium.com` only.
 This is a management metric; center directors are **not** on it in this version.
@@ -223,7 +233,7 @@ This is a management metric; center directors are **not** on it in this version.
 **Schedule:** GitHub Actions cron every **Monday at 13:00 UTC** (9:00 AM ET) — captures the
 just-completed Sun–Sat week. `workflow_dispatch` enabled for manual GitHub runs.
 
-**Dashboard:** register on the existing `/reports` page (built in the page-goals project).
+**Dashboard (Phase 2):** register on the existing `/reports` page (built in the page-goals project).
 Add a hidden `instructor-pages` script entry and a `REPORTS` row pointing at this repo's
 `run_log.json`, with a "Run Now" button that streams live output. Same mechanism as
 page-goals — no new dashboard code, just config.
