@@ -10,6 +10,8 @@
 
 **Reference implementation:** `~/mathnasium-page-goals/` — copy its `download.py` login flow, `.gitignore`, and repo conventions.
 
+**Status (2026-08-30): Phase 1 COMPLETE.** All 7 tasks done, 62 tests passing, repo pushed to `mdmathnasiums/mathnasium-instructor-pages`. First workbook (Apr 1–Aug 30) generated from live Radius data and delivered to Matt. Live check found the instructor column is `Instructors` (plural) — `config.py` updated. Phase 2 (email + cron + dashboard) awaits Matt's sign-off on the numbers.
+
 ---
 
 ## File Map
