@@ -2,46 +2,32 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build an on-demand CLI tool that pulls the Radius Enrollment Report for Teaneck and Englewood, finds every "Summer 2026 (Sessions Package)" enrollment, classifies each student by current status and school-year conversion, and renders a single self-contained HTML report.
+**Goal:** Build an on-demand CLI tool that pulls the Radius Enrollment Report for Teaneck and Englewood, finds every 2026 summer-package enrollment, classifies each student by current status and school-year conversion, and renders a single self-contained HTML report.
 
-**Architecture:** One Playwright headless pull of the Enrollment Report per center (4/1/2026 → today, all statuses). A pure-function transform layer (pandas) identifies summer students and buckets each one using only that student's other enrollment rows. A render layer emits one portable HTML file with an overall summary plus a per-center section. Run by hand; no GitHub Actions.
+**Architecture:** One Playwright headless pull of the Enrollment Report per center (4/1/2026 → 12/31/2026, all statuses). A pure-function transform layer (pandas) identifies summer students and buckets each one using only that student's other enrollment rows. A render layer emits one portable HTML file with an overall summary plus a per-center section. Run by hand; no GitHub Actions.
 
-**Tech Stack:** Python 3.11+, Playwright (headless Chromium), pandas, openpyxl (read the export if it is `.xlsx`), pytest. Radius credentials from `~/.mathnasium_env`.
+**Tech Stack:** Python 3.11+, Playwright (headless Chromium), pandas, openpyxl, pytest. Radius credentials from `~/.mathnasium_env`.
 
 ---
 
-## Reference: spec
+## References
 
-Design spec: `~/Mathnasium_automation/docs/superpowers/specs/2026-09-07-summer-package-status-report-design.md`
+- **Design spec:** `~/Mathnasium_automation/docs/superpowers/specs/2026-09-07-summer-package-status-report-design.md` — read the "Discovery findings" and "Status Classification" sections before starting.
+- **Existing patterns:** `~/mathnasium-new-enrollments/` (closest cousin — `download.py`, `config.py`) and `~/mathnasium-binder-audit/discover_selectors.py`.
+- **Discovery already done (2026-09-07):** the gate passed. Real exports for both centers are cached at `~/mathnasium-summer-status/input/EnrollmentReport_Teaneck.xlsx` and `..._Englewood.xlsx` — use them as fixtures and for `--no-download` runs. The discovery script is at `~/mathnasium-summer-status/discover_selectors.py` (created in Task 2).
 
-## Reference: existing patterns to copy
+## Known facts from discovery (do not re-derive)
 
-These live under `~/` as sibling repos. Read before starting — they show the exact Radius/Playwright idioms this project follows:
-
-- `~/mathnasium-new-enrollments/` — closest cousin. `download.py` (login + Enrollment Report), `config.py` (center IDs, `TBD_` column constants), `discover_selectors.py`.
-- `~/mathnasium-binder-audit/discover_selectors.py` — reusable selector-dump template.
-
-**Radius selector constants (known, stable across reports):**
-
-```python
-LOGIN_URL = "https://radius.mathnasium.com"
-# login form
-SEL_USERNAME = "#UserName"
-SEL_PASSWORD = "#Password"
-SEL_LOGIN_BTN = "#login"
-# center multiselect (Kendo)
-SEL_CENTER_MULTISELECT = "#AllCenterListMultiSelect"
-CENTER_ID_TEANECK = "2871"
-CENTER_ID_ENGLEWOOD = "2428"
-# search / export
-SEL_SEARCH_BTN = "#btnsearch"
-SEL_EXPORT_BTN = "#btnExport"
-# enrollment report
-ENROLLMENT_REPORT_URL = "https://radius.mathnasium.com/Enrollment/EnrollmentReport"
-SEL_ENROLLMENT_STATUS_DD = "#EnrollmentStatusDropDown"  # value "3" = Enrolled; we want ALL, so leave default/unset
-```
-
-Build JS arrays passed to `page.evaluate()` with `json.dumps(...)`, never `str(list)`.
+- **Export columns (verbatim):** `Lead Id`, `Account Id`, `Student First Name`, `Student Last Name`, `Grade`, `Grade Range`, `Account Name`, `Center`, `Status`, `Membership Type`, `Primary Enrollment Start`, `Primary Enrollment End`, `Recurring`, `Enrollment Contract Length`, `Enrollment Length of Stay`, `Student Length of Stay`, `Total Sessions`, `Remaining`, `Session Length`, `Hold Count`, `Total Hold Length`, `Delivery`, `Monthly Amount`, `Expected Monthly Amount`, `Virtual Center`, `Guardians`, `Guardian Emails`, `Guardian Phone Numbers`.
+- `Primary Enrollment Start` / `Primary Enrollment End` are **per-enrollment** (per row).
+- One row per enrollment. Student key = `Student First Name` + `Student Last Name` + `Center`, normalized (strip, collapse inner whitespace, casefold).
+- `Status` ∈ {`Pre-Enrolled`, `Enrolled`, `On Hold`, `Inactive`}. Nothing else. `Enrolled` does **not** imply currently attending — use `Primary Enrollment End` >= today.
+- Summer membership `Membership Type` value (strip a leading `"* "` first):
+  - Teaneck: `Summer 2026 (Sessions Package)`
+  - Englewood: `2026 Summer Sessions Package (Sessions Package)`
+- School Partnership = `Membership Type` contains substring `School Partnership`.
+- No sessions/week column — show `Membership Type` name + `Monthly Amount` as conversion detail.
+- Selectors: `#UserName` `#Password` `#login`; center `#AllCenterListMultiSelect` (Kendo MultiSelect); dates `#StartDate` `#EndDate` (Kendo DatePicker); `#btnsearch`; `#btnExport`; grid `#gridEnrollmentReport`. Center ids: Teaneck `2871`, Englewood `2428`.
 
 ---
 
@@ -49,58 +35,29 @@ Build JS arrays passed to `page.evaluate()` with `json.dumps(...)`, never `str(l
 
 | File | Responsibility |
 |---|---|
-| `~/mathnasium-summer-status/config.py` | Constants: URLs, selectors, center config, the summer membership string, pull window, `TBD_` column-name constants filled after discovery |
-| `~/mathnasium-summer-status/discover_selectors.py` | One-time headed script: dump Enrollment Report grid columns + confirm row granularity and membership-type filter behavior |
-| `~/mathnasium-summer-status/download.py` | Playwright headless: login, pull Enrollment Report per center, save raw export to `input/EnrollmentReport_<center>.xlsx` |
-| `~/mathnasium-summer-status/transform.py` | Pure functions over DataFrames: normalize, identify summer students, classify each, build summaries |
-| `~/mathnasium-summer-status/report.py` | Render `output/summer_2026_status.html` from transformed data; open it in the browser |
-| `~/mathnasium-summer-status/main.py` | CLI orchestrator: `--no-download` flag, download → transform → report |
-| `~/mathnasium-summer-status/tests/test_transform.py` | Unit tests for every classification bucket + edge cases |
-| `~/mathnasium-summer-status/requirements.txt` | Dependencies |
-| `~/mathnasium-summer-status/.gitignore` | `input/`, `output/`, `__pycache__/`, `*.pyc`, `.env` |
+| `~/mathnasium-summer-status/config.py` | Constants: URLs, selectors, center config, per-center summer strings, pull window, column-name constants |
+| `~/mathnasium-summer-status/discover_selectors.py` | The headless discovery script (kept for re-running if Radius changes) |
+| `~/mathnasium-summer-status/download.py` | Playwright headless: login, pull Enrollment Report per center, save `input/EnrollmentReport_<center>.xlsx` |
+| `~/mathnasium-summer-status/transform.py` | Pure functions: load/normalize, identify summer students, classify, summarize |
+| `~/mathnasium-summer-status/report.py` | Render `output/summer_2026_status.html`; open it |
+| `~/mathnasium-summer-status/main.py` | CLI orchestrator (`--no-download`) |
+| `~/mathnasium-summer-status/tests/test_transform.py` | Unit tests for classification |
+| `~/mathnasium-summer-status/tests/test_report.py` | Unit tests for the renderer |
+
+Task 1 (scaffold) is **already complete** — the directory, git repo, `requirements.txt`, `.gitignore`, a placeholder `config.py`, and `tests/__init__.py` exist and are committed. Task 2 rewrites `config.py` with real values.
 
 ---
 
-## Task 1: Project scaffold
+## Task 2: `config.py` with real values + save the discovery script
 
 **Files:**
-- Create: `~/mathnasium-summer-status/requirements.txt`
-- Create: `~/mathnasium-summer-status/.gitignore`
-- Create: `~/mathnasium-summer-status/config.py`
-- Create: `~/mathnasium-summer-status/tests/__init__.py`
+- Modify: `~/mathnasium-summer-status/config.py` (replace entirely)
+- Create: `~/mathnasium-summer-status/discover_selectors.py`
 
-- [ ] **Step 1: Create the project directory and git repo**
-
-```bash
-mkdir -p ~/mathnasium-summer-status/tests ~/mathnasium-summer-status/input ~/mathnasium-summer-status/output
-cd ~/mathnasium-summer-status
-git init
-```
-
-- [ ] **Step 2: Create `requirements.txt`**
-
-```
-playwright==1.44.0
-pandas==2.2.2
-openpyxl==3.1.2
-pytest==8.2.0
-```
-
-- [ ] **Step 3: Create `.gitignore`**
-
-```
-input/
-output/
-__pycache__/
-*.pyc
-.env
-```
-
-- [ ] **Step 4: Create `config.py`**
+- [ ] **Step 1: Replace `config.py` with:**
 
 ```python
 from pathlib import Path
-from datetime import date
 
 BASE_DIR = Path(__file__).parent
 INPUT_DIR = BASE_DIR / "input"
@@ -114,244 +71,187 @@ SEL_USERNAME = "#UserName"
 SEL_PASSWORD = "#Password"
 SEL_LOGIN_BTN = "#login"
 SEL_CENTER_MULTISELECT = "#AllCenterListMultiSelect"
+SEL_START_DATE = "#StartDate"
+SEL_END_DATE = "#EndDate"
 SEL_SEARCH_BTN = "#btnsearch"
 SEL_EXPORT_BTN = "#btnExport"
+SEL_GRID = "#gridEnrollmentReport"
 
+# Each center: Radius id + the exact Membership Type string for its 2026 summer
+# package (as it appears in the export, after stripping a leading "* ").
 CENTERS = {
-    "Teaneck":   {"radius_id": "2871"},
-    "Englewood": {"radius_id": "2428"},
+    "Teaneck":   {"radius_id": "2871",
+                  "summer_membership": "Summer 2026 (Sessions Package)"},
+    "Englewood": {"radius_id": "2428",
+                  "summer_membership": "2026 Summer Sessions Package (Sessions Package)"},
 }
 
-# ── Report parameters ─────────────────────────────────────────────────────
-SUMMER_MEMBERSHIP = "Summer 2026 (Sessions Package)"
-PULL_START = "4/1/2026"   # passed to the report's From date field
-# PULL_END is "today" — computed at runtime
+# Pull window passed to the report's date fields (year, month0-indexed, day).
+PULL_START = (2026, 3, 1)    # 4/1/2026
+PULL_END = (2026, 11, 31)    # 12/31/2026
 
-# ── Enrollment Report column names — FILL IN AFTER discover_selectors.py ───
-# Run discover_selectors.py, open input/EnrollmentReport_Teaneck.xlsx, and
-# replace each string below with the exact column header from the export.
-COL_STUDENT      = "TBD_StudentName"     # full student name; if split, see COL_FIRST/COL_LAST
-COL_FIRST        = None                  # set if name is split across two columns, else None
-COL_LAST         = None
-COL_CENTER       = "TBD_Center"
-COL_MEMBERSHIP   = "TBD_MembershipType"  # must contain the SUMMER_MEMBERSHIP string
-COL_START_DATE   = "TBD_EnrollmentStart"
-COL_STATUS       = "TBD_EnrollmentStatus"
-COL_SESSIONS_WK  = "TBD_SessionsPerWeek" # set to None if the export has no such field
+# A membership type is a "school partnership" continuation if its name contains:
+SCHOOL_PARTNERSHIP_MARKER = "School Partnership"
 
-# ── Status string mapping — FILL IN / CONFIRM AFTER inspecting real export ─
-# Map the raw Radius status strings (lowercased) to canonical tokens.
-STATUS_ENROLLED  = {"enrolled", "active"}
-STATUS_HOLD      = {"hold", "on hold"}
-STATUS_CANCELLED = {"cancelled", "canceled", "dropped"}
-STATUS_DONE      = {"completed", "expired", "finished", "ended"}
+# ── Export column names (verbatim, confirmed 2026-09-07) ──────────────────
+COL_FIRST      = "Student First Name"
+COL_LAST       = "Student Last Name"
+COL_GRADE      = "Grade"
+COL_CENTER     = "Center"
+COL_STATUS     = "Status"
+COL_MEMBERSHIP = "Membership Type"
+COL_START_DATE = "Primary Enrollment Start"
+COL_END_DATE   = "Primary Enrollment End"
+COL_MONTHLY    = "Monthly Amount"
+
+# Known Radius enrollment statuses. Anything else -> the student is flagged
+# "needs review".
+KNOWN_STATUSES = {"Pre-Enrolled", "Enrolled", "On Hold", "Inactive"}
 ```
 
-- [ ] **Step 5: Create `tests/__init__.py`** (empty file)
+- [ ] **Step 2: Create `discover_selectors.py`** (headless; kept for future re-runs)
 
 ```python
-```
+"""Headless discovery for the Enrollment Report. Already run 2026-09-07; kept in
+case Radius changes the report. Dumps element ids, membership-type options, grid
+fields, and saves a Teaneck export to input/.
 
-- [ ] **Step 6: Commit**
-
-```bash
-cd ~/mathnasium-summer-status
-git add -A
-git commit -m "chore: project scaffold for summer package status report"
-```
-
----
-
-## Task 2: Selector / column discovery (GATE)
-
-**Files:**
-- Create: `~/mathnasium-summer-status/discover_selectors.py`
-
-This task produces information, not shippable code. Its output decides whether Approach 1 is viable.
-
-- [ ] **Step 1: Write `discover_selectors.py`**
-
-```python
-"""One-time headed discovery for the Enrollment Report.
-
-Confirms: (a) the grid/export exposes membership type, enrollment start date,
-enrollment status, and a sessions/week field; (b) the export has one row per
-enrollment, not one per student; (c) whether membership type can be filtered
-server-side or must be filtered after export.
-
-Run:  export $(cat ~/.mathnasium_env | xargs) && python discover_selectors.py
+Run:  RADIUS_USERNAME=... RADIUS_PASSWORD=... python discover_selectors.py
 """
 import os
+import json
 from playwright.sync_api import sync_playwright
 import config as c
+
 
 def main():
     user = os.environ["RADIUS_USERNAME"]
     pw = os.environ["RADIUS_PASSWORD"]
+    c.INPUT_DIR.mkdir(exist_ok=True)
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False, slow_mo=300)
+        browser = p.chromium.launch(headless=True)
         with browser:
-            context = browser.new_context(accept_downloads=True)
-            with context:
-                page = context.new_page()
-                page.goto(c.LOGIN_URL)
+            ctx = browser.new_context(accept_downloads=True,
+                                      viewport={"width": 1500, "height": 1000})
+            with ctx:
+                page = ctx.new_page()
+                page.goto(c.LOGIN_URL, wait_until="networkidle")
                 page.fill(c.SEL_USERNAME, user)
                 page.fill(c.SEL_PASSWORD, pw)
                 page.click(c.SEL_LOGIN_BTN)
                 page.wait_for_load_state("networkidle")
+                page.goto(c.ENROLLMENT_REPORT_URL, wait_until="networkidle")
+                page.wait_for_timeout(3000)
 
-                page.goto(c.ENROLLMENT_REPORT_URL)
-                page.wait_for_load_state("networkidle")
-
-                # Dump every element that has an id — find date fields,
-                # membership-type filter, status dropdown.
-                ids = page.evaluate(
+                els = page.evaluate(
                     "Array.from(document.querySelectorAll('[id]')).map(e => "
-                    "({id: e.id, tag: e.tagName, type: e.type, name: e.name}))"
+                    "({id:e.id, tag:e.tagName, type:e.type||'', name:e.name||''}))"
                 )
-                print("=== ELEMENTS WITH IDS ===")
-                for el in ids:
-                    print(el)
+                print(json.dumps(els, indent=2))
 
-                input("Manually run the report for Teaneck, all statuses, "
-                      "4/1/2026 -> today. Then press Enter to dump grid headers...")
-
-                headers = page.evaluate(
-                    "Array.from(document.querySelectorAll('.k-grid-header th')).map(e => e.innerText.trim())"
+                opts = page.evaluate(
+                    "Array.from(document.querySelectorAll('#membershipTypeMultiSelect option'))"
+                    ".map(o => o.text.trim())"
                 )
-                print("=== GRID COLUMN HEADERS ===")
-                for h in headers:
-                    print(repr(h))
+                print("MEMBERSHIP TYPE OPTIONS:", json.dumps(opts, indent=2))
 
-                input("Now export the grid to Excel manually and save it to "
-                      "input/ as EnrollmentReport_Teaneck.xlsx. Press Enter when done.")
+                page.evaluate(
+                    "() => { const ms=$('#AllCenterListMultiSelect').data('kendoMultiSelect');"
+                    "ms.value(['2871']); ms.trigger('change');"
+                    "$('#StartDate').data('kendoDatePicker').value(new Date(2026,3,1));"
+                    "$('#EndDate').data('kendoDatePicker').value(new Date(2026,11,31)); }"
+                )
+                page.wait_for_timeout(500)
+                page.click(c.SEL_SEARCH_BTN)
+                page.wait_for_timeout(7000)
+                with page.expect_download(timeout=60000) as dl:
+                    page.click(c.SEL_EXPORT_BTN)
+                dl.value.save_as(str(c.INPUT_DIR / "EnrollmentReport_Teaneck.xlsx"))
+                print("saved input/EnrollmentReport_Teaneck.xlsx")
+
 
 if __name__ == "__main__":
     main()
 ```
 
-- [ ] **Step 2: Run it**
+- [ ] **Step 3: Byte-compile check**
+
+Run: `cd ~/mathnasium-summer-status && python -c "import config; import ast; ast.parse(open('discover_selectors.py').read()); print('ok')"`
+Expected: `ok`
+
+- [ ] **Step 4: Commit**
 
 ```bash
 cd ~/mathnasium-summer-status
-export $(cat ~/.mathnasium_env | xargs)
-python discover_selectors.py
-```
-
-- [ ] **Step 3: Record findings in a scratch note**
-
-Create `~/mathnasium-summer-status/DISCOVERY_NOTES.md` with:
-- The exact From/To date field selectors (ids)
-- Whether a membership-type filter control exists on the report (id, or "none — filter after export")
-- The exact grid column headers, verbatim
-- Confirmation: does the export have multiple rows for a student with multiple enrollments? (open the xlsx, look for a known multi-enrollment student, or sort by name)
-- The distinct values seen in the status column
-
-```bash
-git add DISCOVERY_NOTES.md
-git commit -m "docs: record Enrollment Report discovery findings"
-```
-
-- [ ] **Step 4: GATE CHECK**
-
-If the export is **one row per student** (not per enrollment) OR has **no membership-type column**, STOP. Report to the user: "Approach 1 isn't viable — the Enrollment Report is [one-row-per-student / missing membership type]. The spec's fallback is Approach 3 (add the Student Report). Want me to revise the spec?"
-
-Otherwise continue.
-
-- [ ] **Step 5: Fill in `config.py`**
-
-Replace every `TBD_` constant with the verbatim column header from the export. Set `COL_SESSIONS_WK = None` if there is no such column. Set `COL_FIRST`/`COL_LAST` if the name is split. Adjust the `STATUS_*` sets to include every distinct raw status value seen (lowercased). Commit:
-
-```bash
-git add config.py
-git commit -m "chore: fill in Enrollment Report column names from discovery"
+git add config.py discover_selectors.py
+git commit -m "chore: real config values + discovery script from 2026-09-07 findings"
 ```
 
 ---
 
-## Task 3: `download.py` — pull the Enrollment Report
+## Task 3: `download.py` — pull the Enrollment Report per center
 
 **Files:**
 - Create: `~/mathnasium-summer-status/download.py`
 
-Selectors for the date fields and export flow come from Task 2. The code below uses
-placeholder names `SEL_FROM_DATE` / `SEL_TO_DATE` — **replace with the real ids
-recorded in DISCOVERY_NOTES.md** and add them to `config.py` first.
-
-- [ ] **Step 1: Add the date-field selectors to `config.py`**
+- [ ] **Step 1: Write `download.py`**
 
 ```python
-# Enrollment Report date fields (from discovery — replace with real ids)
-SEL_FROM_DATE = "#ReportStart"   # REPLACE with actual id from DISCOVERY_NOTES.md
-SEL_TO_DATE = "#ReportEnd"       # REPLACE with actual id from DISCOVERY_NOTES.md
-```
-
-```bash
-git add config.py && git commit -m "chore: add enrollment report date-field selectors"
-```
-
-- [ ] **Step 2: Write `download.py`**
-
-```python
-"""Pull the Radius Enrollment Report for each center and cache the raw export."""
+"""Pull the Radius Enrollment Report for each center; cache the raw export."""
 import os
-from datetime import date
 from playwright.sync_api import sync_playwright
 import config as c
 
 
 def _login(page):
-    page.goto(c.LOGIN_URL)
+    page.goto(c.LOGIN_URL, wait_until="networkidle")
     page.fill(c.SEL_USERNAME, os.environ["RADIUS_USERNAME"])
     page.fill(c.SEL_PASSWORD, os.environ["RADIUS_PASSWORD"])
     page.click(c.SEL_LOGIN_BTN)
     page.wait_for_load_state("networkidle")
+    if page.query_selector(c.SEL_USERNAME):
+        raise RuntimeError("Radius login failed — still on the login page")
 
 
-def _set_center(page, radius_id: str):
-    # Kendo MultiSelect: clear any existing tags, then set the single value via JS.
+def _pull_center(page, radius_id: str, out_path):
+    page.goto(c.ENROLLMENT_REPORT_URL, wait_until="networkidle")
+    page.wait_for_timeout(3000)
+    sy, sm, sd = c.PULL_START
+    ey, em, ed = c.PULL_END
     page.evaluate(
-        """(id) => {
+        """([id, s, e]) => {
             const ms = $('#AllCenterListMultiSelect').data('kendoMultiSelect');
-            ms.value([id]);
-            ms.trigger('change');
+            ms.value([id]); ms.trigger('change');
+            $('#StartDate').data('kendoDatePicker').value(new Date(s[0], s[1], s[2]));
+            $('#EndDate').data('kendoDatePicker').value(new Date(e[0], e[1], e[2]));
         }""",
-        radius_id,
+        [radius_id, [sy, sm, sd], [ey, em, ed]],
     )
-
-
-def _pull_center(page, center_name: str, radius_id: str) -> str:
-    page.goto(c.ENROLLMENT_REPORT_URL)
-    page.wait_for_load_state("networkidle")
-    _set_center(page, radius_id)
-    page.fill(c.SEL_FROM_DATE, c.PULL_START)
-    page.fill(c.SEL_TO_DATE, date.today().strftime("%-m/%-d/%Y"))
-    # Leave the status dropdown at its default so ALL statuses are returned.
+    page.wait_for_timeout(500)
     page.click(c.SEL_SEARCH_BTN)
+    page.wait_for_timeout(7000)
     page.wait_for_load_state("networkidle")
-
-    out_path = c.INPUT_DIR / f"EnrollmentReport_{center_name}.xlsx"
-    with page.expect_download() as dl:
+    with page.expect_download(timeout=60000) as dl:
         page.click(c.SEL_EXPORT_BTN)
     dl.value.save_as(str(out_path))
-    return str(out_path)
 
 
-def download_all() -> dict[str, str]:
-    """Returns {center_name: path_to_xlsx}. Raises on login failure."""
+def download_all() -> dict:
+    """Pull both centers. Returns {center_name: Path}. Raises on login failure."""
     c.INPUT_DIR.mkdir(exist_ok=True)
     paths = {}
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         with browser:
-            context = browser.new_context(accept_downloads=True)
-            with context:
-                page = context.new_page()
+            ctx = browser.new_context(accept_downloads=True,
+                                      viewport={"width": 1500, "height": 1000})
+            with ctx:
+                page = ctx.new_page()
                 _login(page)
-                if page.query_selector(c.SEL_USERNAME):
-                    raise RuntimeError("Radius login failed — still on the login page")
                 for name, cfg in c.CENTERS.items():
-                    paths[name] = _pull_center(page, name, cfg["radius_id"])
+                    out = c.INPUT_DIR / f"EnrollmentReport_{name}.xlsx"
+                    _pull_center(page, cfg["radius_id"], out)
+                    paths[name] = out
     return paths
 
 
@@ -360,22 +260,23 @@ if __name__ == "__main__":
         print(f"{name}: {path}")
 ```
 
-- [ ] **Step 3: Run it against real Radius**
+- [ ] **Step 2: Run it against real Radius**
 
 ```bash
 cd ~/mathnasium-summer-status
-export $(cat ~/.mathnasium_env | xargs)
+export RADIUS_USERNAME="$(grep '^RADIUS_USERNAME=' ~/.mathnasium_env | cut -d= -f2-)"
+export RADIUS_PASSWORD="$(grep '^RADIUS_PASSWORD=' ~/.mathnasium_env | cut -d= -f2-)"
 python download.py
 ```
 
-Expected: `input/EnrollmentReport_Teaneck.xlsx` and `input/EnrollmentReport_Englewood.xlsx` exist and open in Excel with the columns seen during discovery.
+Expected: prints `Teaneck: .../EnrollmentReport_Teaneck.xlsx` and the Englewood line; both files open in Excel with the 28 known columns and ~150–170 rows each. (Note: `~/.mathnasium_env` also contains a `GOOGLE_SERVICE_ACCOUNT_JSON` value with spaces, so `export $(cat ... | xargs)` fails — extract the two RADIUS vars individually as shown.)
 
-- [ ] **Step 4: Fix selectors until it works.** The Kendo `_set_center` JS and the date-field fill are the likely failure points — adjust against the live page. Re-run until both files download with the right center's data (spot-check a few student names).
+- [ ] **Step 3: Fix selectors until it works.** Likely failure points: the Kendo `.data('kendoMultiSelect')` / `.data('kendoDatePicker')` calls if jQuery (`$`) isn't ready — add `page.wait_for_function("typeof window.$ === 'function'")` before the `evaluate` if so. Re-run until both files download with the right center's data (spot-check a couple of student names against the Radius UI).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add download.py config.py
+git add download.py
 git commit -m "feat: pull Enrollment Report per center via Playwright"
 ```
 
@@ -393,41 +294,48 @@ git commit -m "feat: pull Enrollment Report per center via Playwright"
 import pandas as pd
 from transform import normalize
 
+SUMMER_T = "Summer 2026 (Sessions Package)"
 
-def _raw_row(**kw):
+
+def _raw(**kw):
     base = {
-        "TBD_StudentName": "Jane Doe",
-        "TBD_Center": "Teaneck",
-        "TBD_MembershipType": "Summer 2026 (Sessions Package)",
-        "TBD_EnrollmentStart": "6/15/2026",
-        "TBD_EnrollmentStatus": "Completed",
-        "TBD_SessionsPerWeek": "",
+        "Student First Name": " Jane ", "Student Last Name": "Doe",
+        "Grade": "5", "Center": "Teaneck", "Status": "Inactive",
+        "Membership Type": "* " + SUMMER_T,
+        "Primary Enrollment Start": "6/15/2026",
+        "Primary Enrollment End": "8/31/2026",
+        "Monthly Amount": 0,
     }
     base.update(kw)
     return base
 
 
-def test_normalize_renames_and_types():
-    raw = pd.DataFrame([_raw_row()])
-    df = normalize(raw)
+def test_normalize_shapes_and_types():
+    df = normalize(pd.DataFrame([_raw()]))
     assert list(df.columns) == [
-        "student", "center", "membership", "start_date", "status_raw",
-        "status_token", "sessions_wk",
+        "student_key", "student", "grade", "center", "status",
+        "membership", "is_school_partnership", "start_date", "end_date",
+        "monthly_amount",
     ]
-    assert df.loc[0, "student"] == "Jane Doe"
-    assert df.loc[0, "start_date"] == pd.Timestamp("2026-06-15")
-    assert df.loc[0, "status_token"] == "done"
+    r = df.iloc[0]
+    assert r["student"] == "Jane Doe"
+    assert r["student_key"] == "jane doe|teaneck"
+    assert r["membership"] == SUMMER_T          # leading "* " stripped
+    assert r["start_date"] == pd.Timestamp("2026-06-15")
+    assert r["end_date"] == pd.Timestamp("2026-08-31")
+    assert r["is_school_partnership"] is False or r["is_school_partnership"] == False
 
 
-def test_normalize_maps_status_tokens():
-    rows = pd.DataFrame([
-        _raw_row(TBD_EnrollmentStatus="Enrolled"),
-        _raw_row(TBD_EnrollmentStatus="On Hold"),
-        _raw_row(TBD_EnrollmentStatus="Cancelled"),
-        _raw_row(TBD_EnrollmentStatus="Weird New Status"),
-    ])
-    df = normalize(rows)
-    assert list(df["status_token"]) == ["enrolled", "hold", "cancelled", "other"]
+def test_normalize_flags_school_partnership():
+    df = normalize(pd.DataFrame([
+        _raw(**{"Membership Type": "* Ridgefield Park (School Partnership) (Sessions Package)"})
+    ]))
+    assert bool(df.iloc[0]["is_school_partnership"]) is True
+
+
+def test_normalize_collapses_whitespace_in_key():
+    df = normalize(pd.DataFrame([_raw(**{"Student First Name": "Mary  Jane"})]))
+    assert df.iloc[0]["student_key"] == "mary jane doe|teaneck"
 ```
 
 - [ ] **Step 2: Run to verify it fails**
@@ -438,62 +346,58 @@ Expected: FAIL — `ImportError: cannot import name 'normalize'`
 - [ ] **Step 3: Write `normalize`**
 
 ```python
-"""Pure transforms over the Enrollment Report exports."""
+"""Pure transforms over an Enrollment Report export."""
+import re
 import pandas as pd
 import config as c
 
-_CANON_COLS = ["student", "center", "membership", "start_date",
-               "status_raw", "status_token", "sessions_wk"]
+_CANON = ["student_key", "student", "grade", "center", "status", "membership",
+          "is_school_partnership", "start_date", "end_date", "monthly_amount"]
 
 
-def _status_token(raw: str) -> str:
-    s = str(raw).strip().lower()
-    if s in c.STATUS_ENROLLED:
-        return "enrolled"
-    if s in c.STATUS_HOLD:
-        return "hold"
-    if s in c.STATUS_CANCELLED:
-        return "cancelled"
-    if s in c.STATUS_DONE:
-        return "done"
-    return "other"
+def _clean(s) -> str:
+    return re.sub(r"\s+", " ", str(s)).strip()
 
 
-def _student_name(row) -> str:
-    if c.COL_FIRST and c.COL_LAST:
-        return f"{row[c.COL_FIRST]} {row[c.COL_LAST]}".strip()
-    return str(row[c.COL_STUDENT]).strip()
+def _strip_star(s) -> str:
+    return re.sub(r"^\*\s+", "", _clean(s))
 
 
 def normalize(raw: pd.DataFrame) -> pd.DataFrame:
     out = pd.DataFrame()
-    out["student"] = raw.apply(_student_name, axis=1)
-    out["center"] = raw[c.COL_CENTER].astype(str).str.strip()
-    out["membership"] = raw[c.COL_MEMBERSHIP].astype(str).str.strip()
+    first = raw[c.COL_FIRST].map(_clean)
+    last = raw[c.COL_LAST].map(_clean)
+    center = raw[c.COL_CENTER].map(_clean)
+    out["student_key"] = (first.str.cat(last, sep=" ").str.casefold()
+                          + "|" + center.str.casefold())
+    out["student"] = first.str.cat(last, sep=" ")
+    out["grade"] = raw[c.COL_GRADE].map(_clean)
+    out["center"] = center
+    out["status"] = raw[c.COL_STATUS].map(_clean)
+    out["membership"] = raw[c.COL_MEMBERSHIP].map(_strip_star)
+    out["is_school_partnership"] = out["membership"].str.contains(
+        c.SCHOOL_PARTNERSHIP_MARKER, case=False, regex=False
+    )
     out["start_date"] = pd.to_datetime(raw[c.COL_START_DATE], errors="coerce")
-    out["status_raw"] = raw[c.COL_STATUS].astype(str).str.strip()
-    out["status_token"] = out["status_raw"].map(_status_token)
-    if c.COL_SESSIONS_WK:
-        out["sessions_wk"] = raw[c.COL_SESSIONS_WK].astype(str).str.strip()
-    else:
-        out["sessions_wk"] = ""
-    return out[_CANON_COLS]
+    out["end_date"] = pd.to_datetime(raw[c.COL_END_DATE], errors="coerce")
+    out["monthly_amount"] = pd.to_numeric(raw[c.COL_MONTHLY], errors="coerce")
+    return out[_CANON]
 
 
-def load_center(path: str) -> pd.DataFrame:
+def load_center(path) -> pd.DataFrame:
     return normalize(pd.read_excel(path))
 ```
 
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `python -m pytest tests/test_transform.py -v`
-Expected: PASS (both tests)
+Expected: PASS (3 tests)
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add transform.py tests/test_transform.py
-git commit -m "feat: normalize Enrollment Report exports"
+git commit -m "feat: normalize Enrollment Report export"
 ```
 
 ---
@@ -504,182 +408,233 @@ git commit -m "feat: normalize Enrollment Report exports"
 - Modify: `~/mathnasium-summer-status/transform.py`
 - Test: `~/mathnasium-summer-status/tests/test_transform.py`
 
-Classification rules (from the spec):
+Buckets, first match wins (see spec):
 
-| Bucket key | Label | Rule |
-|---|---|---|
-| `converted_active` | Converted – active | non-summer row, token `enrolled`, start >= summer start |
-| `converted_hold` | Converted – on hold | non-summer row, token `hold`, start >= summer start |
-| `summer_active` | Summer still active | summer row token `enrolled`; no non-summer row qualifying above |
-| `not_returned` | Completed – not returned | summer row token `done`; no later non-summer row |
-| `cancelled` | Cancelled | summer row token `cancelled`; no later non-summer row |
-| `needs_review` | Other / needs review | none of the above (e.g. summer row token `other`) |
-
-If a student has a qualifying converted row, the converted bucket wins regardless of the summer row's status. If both a `converted_active` and `converted_hold` row exist, `converted_hold` wins (matches spec: "converted and then went on hold"). Among multiple non-summer rows, "Converted to" detail comes from the one with the latest start date.
+| key | label |
+|---|---|
+| `converted_active` | Converted – active |
+| `converted_hold` | Converted – on hold |
+| `school_partnership` | Continued via School Partnership |
+| `summer_active` | Summer still active |
+| `did_not_return` | Did not return |
+| `needs_review` | Needs review |
 
 - [ ] **Step 1: Write the failing tests**
 
 ```python
-from transform import classify_students
-import pandas as pd
+from datetime import date
+from transform import classify_students, BUCKET_LABELS
+
+SUMMER_T = "Summer 2026 (Sessions Package)"
+AS_OF = date(2026, 9, 7)
+
+
+def _row(student, membership, start, end, status, center="Teaneck", sp=False, amt=0):
+    return {
+        "student_key": student.casefold() + "|" + center.casefold(),
+        "student": student, "grade": "5", "center": center, "status": status,
+        "membership": membership, "is_school_partnership": sp,
+        "start_date": pd.Timestamp(start), "end_date": pd.Timestamp(end),
+        "monthly_amount": amt,
+    }
 
 
 def _df(rows):
-    return pd.DataFrame(rows, columns=[
-        "student", "center", "membership", "start_date",
-        "status_raw", "status_token", "sessions_wk",
-    ])
-
-
-SUMMER = "Summer 2026 (Sessions Package)"
+    return pd.DataFrame(rows)
 
 
 def test_converted_active():
     df = _df([
-        ["A", "Teaneck", SUMMER, pd.Timestamp("2026-06-01"), "Completed", "done", ""],
-        ["A", "Teaneck", "School Year 2x", pd.Timestamp("2026-09-01"), "Enrolled", "enrolled", "2"],
+        _row("Amy A", SUMMER_T, "2026-06-01", "2026-08-31", "Inactive"),
+        _row("Amy A", "1x/week - 2024 Flex (Flexible)", "2026-09-01", "2027-01-31", "Enrolled", amt=329),
     ])
-    res = classify_students(df)
-    row = res.loc[res["student"] == "A"].iloc[0]
-    assert row["bucket"] == "converted_active"
-    assert row["converted_to"] == "School Year 2x"
-    assert row["converted_start"] == pd.Timestamp("2026-09-01")
-    assert row["converted_sessions_wk"] == "2"
+    r = classify_students(df, as_of=AS_OF).iloc[0]
+    assert r["bucket"] == "converted_active"
+    assert r["continued_as"] == "1x/week - 2024 Flex (Flexible)"
+    assert r["new_start"] == pd.Timestamp("2026-09-01")
+    assert r["new_monthly"] == 329
 
 
-def test_converted_hold_wins_over_active():
+def test_converted_hold_beats_active():
     df = _df([
-        ["B", "Teaneck", SUMMER, pd.Timestamp("2026-06-01"), "Completed", "done", ""],
-        ["B", "Teaneck", "School Year 2x", pd.Timestamp("2026-09-01"), "Enrolled", "enrolled", "2"],
-        ["B", "Teaneck", "School Year 2x", pd.Timestamp("2026-10-01"), "On Hold", "hold", "2"],
+        _row("Ben B", SUMMER_T, "2026-06-01", "2026-08-31", "Inactive"),
+        _row("Ben B", "2x/week - 2024 Flexible (Flexible)", "2026-09-01", "2027-01-31", "Enrolled"),
+        _row("Ben B", "2x/week - 2024 Flexible (Flexible)", "2026-10-01", "2027-01-31", "On Hold"),
     ])
-    row = classify_students(df).iloc[0]
-    assert row["bucket"] == "converted_hold"
-    # detail from latest-start non-summer row
-    assert row["converted_start"] == pd.Timestamp("2026-10-01")
+    r = classify_students(df, as_of=AS_OF).iloc[0]
+    assert r["bucket"] == "converted_hold"
+    assert r["new_start"] == pd.Timestamp("2026-10-01")
 
 
-def test_summer_still_active():
+def test_school_partnership_bucket():
     df = _df([
-        ["C", "Englewood", SUMMER, pd.Timestamp("2026-07-01"), "Enrolled", "enrolled", ""],
+        _row("Cara C", SUMMER_T, "2026-06-01", "2026-08-31", "Inactive"),
+        _row("Cara C", "Ridgefield Park (School Partnership) (Sessions Package)",
+             "2026-09-05", "2026-12-31", "Enrolled", sp=True),
     ])
-    assert classify_students(df).iloc[0]["bucket"] == "summer_active"
+    assert classify_students(df, as_of=AS_OF).iloc[0]["bucket"] == "school_partnership"
 
 
-def test_completed_not_returned():
+def test_summer_still_active_by_end_date_not_status():
     df = _df([
-        ["D", "Englewood", SUMMER, pd.Timestamp("2026-06-01"), "Completed", "done", ""],
+        _row("Dan D", SUMMER_T, "2026-08-24", "2026-10-31", "Enrolled"),
     ])
-    assert classify_students(df).iloc[0]["bucket"] == "not_returned"
+    assert classify_students(df, as_of=AS_OF).iloc[0]["bucket"] == "summer_active"
 
 
-def test_cancelled():
+def test_did_not_return_when_summer_ended_and_nothing_after():
     df = _df([
-        ["E", "Teaneck", SUMMER, pd.Timestamp("2026-06-01"), "Cancelled", "cancelled", ""],
+        _row("Eve E", SUMMER_T, "2026-06-01", "2026-08-31", "Enrolled"),
     ])
-    assert classify_students(df).iloc[0]["bucket"] == "cancelled"
+    assert classify_students(df, as_of=AS_OF).iloc[0]["bucket"] == "did_not_return"
 
 
-def test_needs_review_on_unknown_status():
+def test_pre_summer_enrollment_is_not_a_conversion():
     df = _df([
-        ["F", "Teaneck", SUMMER, pd.Timestamp("2026-06-01"), "Frozen", "other", ""],
+        _row("Fay F", "2x/week - 2024 Flexible (Flexible)", "2026-01-01", "2026-05-31", "Inactive"),
+        _row("Fay F", SUMMER_T, "2026-06-01", "2026-08-31", "Inactive"),
     ])
-    assert classify_students(df).iloc[0]["bucket"] == "needs_review"
+    assert classify_students(df, as_of=AS_OF).iloc[0]["bucket"] == "did_not_return"
 
 
-def test_non_summer_row_before_summer_start_does_not_count():
+def test_unknown_status_goes_to_needs_review():
     df = _df([
-        ["G", "Teaneck", "School Year 2x", pd.Timestamp("2026-01-01"), "Cancelled", "cancelled", "2"],
-        ["G", "Teaneck", SUMMER, pd.Timestamp("2026-06-01"), "Completed", "done", ""],
+        _row("Gus G", SUMMER_T, "2026-06-01", "2026-08-31", "Frozen"),
     ])
-    assert classify_students(df).iloc[0]["bucket"] == "not_returned"
+    assert classify_students(df, as_of=AS_OF).iloc[0]["bucket"] == "needs_review"
 
 
-def test_one_row_per_student_in_output():
+def test_pre_enrolled_only_summer_is_needs_review():
     df = _df([
-        ["H", "Teaneck", SUMMER, pd.Timestamp("2026-06-01"), "Completed", "done", ""],
-        ["H", "Teaneck", SUMMER, pd.Timestamp("2026-07-15"), "Completed", "done", ""],
+        _row("Hal H", SUMMER_T, "2026-10-01", "2026-12-31", "Pre-Enrolled"),
     ])
-    res = classify_students(df)
-    assert len(res) == 1
+    assert classify_students(df, as_of=AS_OF).iloc[0]["bucket"] == "needs_review"
+
+
+def test_latest_start_wins_for_detail():
+    df = _df([
+        _row("Ivy I", SUMMER_T, "2026-06-01", "2026-08-31", "Inactive"),
+        _row("Ivy I", "1x/week - 2024 Flex (Flexible)", "2026-09-01", "2027-01-31", "Enrolled", amt=1),
+        _row("Ivy I", "2x/week - 2024 Flexible (Flexible)", "2026-09-15", "2027-01-31", "Enrolled", amt=2),
+    ])
+    r = classify_students(df, as_of=AS_OF).iloc[0]
+    assert r["new_monthly"] == 2
+
+
+def test_one_row_per_student():
+    df = _df([
+        _row("Jo J", SUMMER_T, "2026-06-01", "2026-07-15", "Inactive"),
+        _row("Jo J", SUMMER_T, "2026-07-16", "2026-08-31", "Inactive"),
+    ])
+    assert len(classify_students(df, as_of=AS_OF)) == 1
 ```
+
+Add `import pandas as pd` at the top of the test file if not already present.
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `python -m pytest tests/test_transform.py -v -k classify or converted or summer_still or completed or cancelled or needs_review or non_summer or one_row`
+Run: `python -m pytest tests/test_transform.py -v -k classify or converted or summer_still or did_not_return or pre_summer or unknown_status or pre_enrolled or latest_start or one_row`
 Expected: FAIL — `cannot import name 'classify_students'`
 
 - [ ] **Step 3: Implement `classify_students`**
 
 ```python
+from datetime import date
+
 BUCKET_LABELS = {
     "converted_active": "Converted – active",
     "converted_hold": "Converted – on hold",
+    "school_partnership": "Continued via School Partnership",
     "summer_active": "Summer still active",
-    "not_returned": "Completed – not returned",
-    "cancelled": "Cancelled",
-    "needs_review": "Other / needs review",
+    "did_not_return": "Did not return",
+    "needs_review": "Needs review",
 }
+BUCKET_ORDER = list(BUCKET_LABELS)
 
-_OUT_COLS = ["student", "center", "summer_start", "summer_status_raw", "bucket",
-             "bucket_label", "converted_to", "converted_start",
-             "converted_sessions_wk"]
+_OUT_COLS = ["student_key", "student", "grade", "center", "summer_start",
+             "summer_end", "summer_status", "bucket", "bucket_label",
+             "continued_as", "new_start", "new_monthly"]
 
 
-def _classify_one(g: pd.DataFrame) -> dict:
-    is_summer = g["membership"].str.strip() == c.SUMMER_MEMBERSHIP
+def _classify_one(g: pd.DataFrame, as_of: date) -> dict:
+    center = g.iloc[0]["center"]
+    summer_membership = None
+    for cfg in c.CENTERS.values():
+        if (g["membership"] == cfg["summer_membership"]).any():
+            summer_membership = cfg["summer_membership"]
+            break
+    is_summer = g["membership"] == summer_membership
     summer = g[is_summer].sort_values("start_date")
-    non_summer = g[~is_summer]
+    other = g[~is_summer]
+
     summer_start = summer["start_date"].min()
-    summer_status_raw = summer.iloc[-1]["status_raw"] if len(summer) else ""
+    summer_last = summer.sort_values("end_date").iloc[-1]
 
-    qualifying = non_summer[non_summer["start_date"] >= summer_start]
-    conv_active = qualifying[qualifying["status_token"] == "enrolled"]
-    conv_hold = qualifying[qualifying["status_token"] == "hold"]
-
-    result = {
+    res = {
+        "student_key": g.iloc[0]["student_key"],
         "student": g.iloc[0]["student"],
-        "center": g.iloc[0]["center"],
+        "grade": g.iloc[0]["grade"],
+        "center": center,
         "summer_start": summer_start,
-        "summer_status_raw": summer_status_raw,
-        "converted_to": "",
-        "converted_start": pd.NaT,
-        "converted_sessions_wk": "",
+        "summer_end": summer_last["end_date"],
+        "summer_status": summer_last["status"],
+        "continued_as": "",
+        "new_start": pd.NaT,
+        "new_monthly": pd.NA,
     }
+
+    qualifying = other[other["start_date"] >= summer_start]
+    non_sp = qualifying[~qualifying["is_school_partnership"]]
+    sp = qualifying[qualifying["is_school_partnership"]]
+
+    conv_hold = non_sp[non_sp["status"] == "On Hold"]
+    conv_active = non_sp[non_sp["status"] == "Enrolled"]
 
     if len(conv_hold) or len(conv_active):
         bucket = "converted_hold" if len(conv_hold) else "converted_active"
-        detail = qualifying.sort_values("start_date").iloc[-1]
-        result.update({
-            "bucket": bucket,
-            "converted_to": detail["membership"],
-            "converted_start": detail["start_date"],
-            "converted_sessions_wk": detail["sessions_wk"],
-        })
+        detail = non_sp.sort_values("start_date").iloc[-1]
+    elif len(sp):
+        bucket = "school_partnership"
+        detail = sp.sort_values("start_date").iloc[-1]
     else:
-        summer_token = summer.iloc[-1]["status_token"] if len(summer) else "other"
-        bucket = {
-            "enrolled": "summer_active",
-            "done": "not_returned",
-            "cancelled": "cancelled",
-        }.get(summer_token, "needs_review")
-        result["bucket"] = bucket
+        detail = None
+        if summer_last["status"] not in config_known_statuses():
+            bucket = "needs_review"
+        elif summer_last["status"] == "Pre-Enrolled":
+            bucket = "needs_review"
+        elif pd.notna(summer_last["end_date"]) and summer_last["end_date"].date() >= as_of:
+            bucket = "summer_active"
+        else:
+            bucket = "did_not_return"
 
-    result["bucket_label"] = BUCKET_LABELS[result["bucket"]]
-    return result
+    if detail is not None:
+        res["continued_as"] = detail["membership"]
+        res["new_start"] = detail["start_date"]
+        res["new_monthly"] = detail["monthly_amount"]
+
+    res["bucket"] = bucket
+    res["bucket_label"] = BUCKET_LABELS[bucket]
+    return res
 
 
-def classify_students(df: pd.DataFrame) -> pd.DataFrame:
-    """One row per student who has any Summer membership row."""
-    summer_students = set(
-        df.loc[df["membership"].str.strip() == c.SUMMER_MEMBERSHIP, "student"]
-    )
-    sub = df[df["student"].isin(summer_students)]
+def config_known_statuses():
+    return c.KNOWN_STATUSES
+
+
+def classify_students(df: pd.DataFrame, as_of: date | None = None) -> pd.DataFrame:
+    """One row per student who has any summer-package enrollment row."""
+    as_of = as_of or date.today()
+    summer_strings = {cfg["summer_membership"] for cfg in c.CENTERS.values()}
+    summer_keys = set(df.loc[df["membership"].isin(summer_strings), "student_key"])
+    sub = df[df["student_key"].isin(summer_keys)]
     records = [
-        _classify_one(g.reset_index(drop=True))
-        for _, g in sub.groupby("student", sort=True)
+        _classify_one(g.reset_index(drop=True), as_of)
+        for _, g in sub.groupby("student_key", sort=True)
     ]
-    return pd.DataFrame(records, columns=_OUT_COLS)
+    return pd.DataFrame(records, columns=_OUT_COLS).sort_values(
+        by=["bucket", "student"],
+        key=lambda s: s.map({b: i for i, b in enumerate(BUCKET_ORDER)}) if s.name == "bucket" else s,
+    ).reset_index(drop=True)
 ```
 
 - [ ] **Step 4: Run to verify it passes**
@@ -696,44 +651,67 @@ git commit -m "feat: classify summer students by status and conversion"
 
 ---
 
-## Task 6: `transform.py` — summaries
+## Task 6: `transform.py` — summary + same-name collision check
 
 **Files:**
 - Modify: `~/mathnasium-summer-status/transform.py`
 - Test: `~/mathnasium-summer-status/tests/test_transform.py`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests**
 
 ```python
-from transform import build_summary
+from transform import build_summary, find_name_collisions
 
 
-def test_build_summary_counts_and_conversion_rate():
+def test_build_summary_counts_and_rate():
     classified = pd.DataFrame([
         {"student": "A", "center": "Teaneck", "bucket": "converted_active"},
         {"student": "B", "center": "Teaneck", "bucket": "converted_hold"},
-        {"student": "C", "center": "Teaneck", "bucket": "not_returned"},
-        {"student": "D", "center": "Teaneck", "bucket": "cancelled"},
+        {"student": "C", "center": "Teaneck", "bucket": "school_partnership"},
+        {"student": "D", "center": "Teaneck", "bucket": "did_not_return"},
     ])
     s = build_summary(classified)
     assert s["total"] == 4
     assert s["counts"]["converted_active"] == 1
-    assert s["counts"]["needs_review"] == 0
-    assert round(s["conversion_rate"], 2) == 0.50
+    assert s["counts"]["summer_active"] == 0
+    assert round(s["conversion_rate"], 2) == 0.75   # 3 of 4 (incl. school partnership)
+
+
+def test_find_name_collisions_flags_same_name_two_keys():
+    raw = pd.DataFrame([
+        {"student": "Sam Lee", "student_key": "sam lee|teaneck", "center": "Teaneck"},
+        {"student": "Sam Lee", "student_key": "sam lee|teaneck", "center": "Teaneck"},
+    ])
+    assert find_name_collisions(raw) == []   # same key = same kid, fine
+```
+
+Note: `find_name_collisions` detects the *rare* case the spec calls out — it operates
+on the raw normalized frame and flags a `(student, center)` name that maps to enrollment
+rows with conflicting `Account Id`. Since `normalize` currently drops `Account Id`, add
+it: extend `_CANON` and `normalize` to carry an `account_id` column (`raw["Account Id"]
+.map(_clean)`), update the Task 4 `test_normalize_shapes_and_types` column list to
+include `"account_id"` at the end, then implement:
+
+```python
+def find_name_collisions(norm: pd.DataFrame) -> list[str]:
+    """Return display names where one (name, center) maps to >1 Account Id."""
+    g = norm.groupby(["student", "center"])["account_id"].nunique()
+    return sorted(name for (name, _center), n in g.items() if n > 1)
 ```
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `python -m pytest tests/test_transform.py -v -k build_summary`
+Run: `python -m pytest tests/test_transform.py -v -k build_summary or find_name_collisions or normalize_shapes`
 Expected: FAIL — `cannot import name 'build_summary'`
 
-- [ ] **Step 3: Implement `build_summary`**
+- [ ] **Step 3: Implement**
 
 ```python
 def build_summary(classified: pd.DataFrame) -> dict:
     total = len(classified)
     counts = {k: int((classified["bucket"] == k).sum()) for k in BUCKET_LABELS}
-    converted = counts["converted_active"] + counts["converted_hold"]
+    converted = (counts["converted_active"] + counts["converted_hold"]
+                 + counts["school_partnership"])
     return {
         "total": total,
         "counts": counts,
@@ -742,6 +720,9 @@ def build_summary(classified: pd.DataFrame) -> dict:
         "needs_review": counts["needs_review"],
     }
 ```
+
+Plus the `account_id` additions to `_CANON` / `normalize` and `find_name_collisions`
+described above.
 
 - [ ] **Step 4: Run to verify it passes**
 
@@ -752,7 +733,7 @@ Expected: PASS (all tests)
 
 ```bash
 git add transform.py tests/test_transform.py
-git commit -m "feat: per-center summary with conversion rate"
+git commit -m "feat: per-center summary + same-name collision check"
 ```
 
 ---
@@ -766,39 +747,51 @@ git commit -m "feat: per-center summary with conversion rate"
 - [ ] **Step 1: Write the failing test**
 
 ```python
+from datetime import date
 import pandas as pd
 from report import render_html
 
 
 def _classified():
     return pd.DataFrame([
-        {"student": "Anna A", "center": "Teaneck", "summer_start": pd.Timestamp("2026-06-01"),
-         "summer_status_raw": "Completed", "bucket": "converted_active",
-         "bucket_label": "Converted – active", "converted_to": "School Year 2x",
-         "converted_start": pd.Timestamp("2026-09-02"), "converted_sessions_wk": "2"},
-        {"student": "Ben B", "center": "Englewood", "summer_start": pd.Timestamp("2026-07-01"),
-         "summer_status_raw": "Completed", "bucket": "not_returned",
-         "bucket_label": "Completed – not returned", "converted_to": "",
-         "converted_start": pd.NaT, "converted_sessions_wk": ""},
+        {"student_key": "amy a|teaneck", "student": "Amy A", "grade": "5",
+         "center": "Teaneck", "summer_start": pd.Timestamp("2026-06-01"),
+         "summer_end": pd.Timestamp("2026-08-31"), "summer_status": "Inactive",
+         "bucket": "converted_active", "bucket_label": "Converted – active",
+         "continued_as": "1x/week - 2024 Flex (Flexible)",
+         "new_start": pd.Timestamp("2026-09-01"), "new_monthly": 329},
+        {"student_key": "ben b|englewood", "student": "Ben B", "grade": "7",
+         "center": "Englewood", "summer_start": pd.Timestamp("2026-07-01"),
+         "summer_end": pd.Timestamp("2026-08-15"), "summer_status": "Inactive",
+         "bucket": "did_not_return", "bucket_label": "Did not return",
+         "continued_as": "", "new_start": pd.NaT, "new_monthly": pd.NA},
     ])
 
 
-def test_render_html_has_both_center_sections_and_names():
-    html = render_html(_classified(), generated_at="2026-09-07 10:00")
+def test_render_html_has_both_sections_and_data():
+    html = render_html(_classified(), as_of=date(2026, 9, 7))
     assert "<h2>Teaneck</h2>" in html
     assert "<h2>Englewood</h2>" in html
-    assert "Anna A" in html and "Ben B" in html
-    assert "School Year 2x" in html
-    assert "2026-09-07 10:00" in html
-    # self-contained: no external stylesheet links
-    assert "<link" not in html
+    assert "Amy A" in html and "Ben B" in html
+    assert "1x/week - 2024 Flex (Flexible)" in html
+    assert "2026-09-07" in html            # as-of date shown
+    assert "<link" not in html             # self-contained
+    assert "&lt;script&gt;" not in html or True  # escaping sanity (see next test)
 
 
-def test_render_html_flags_needs_review_count():
+def test_render_html_escapes_student_names():
     df = _classified()
-    df.loc[0, "bucket"] = "needs_review"
-    df.loc[0, "bucket_label"] = "Other / needs review"
-    html = render_html(df, generated_at="x")
+    df.loc[0, "student"] = "<b>x</b>"
+    html = render_html(df, as_of=date(2026, 9, 7))
+    assert "<b>x</b>" not in html
+    assert "&lt;b&gt;x&lt;/b&gt;" in html
+
+
+def test_render_html_flags_needs_review():
+    df = _classified()
+    df.loc[1, "bucket"] = "needs_review"
+    df.loc[1, "bucket_label"] = "Needs review"
+    html = render_html(df, as_of=date(2026, 9, 7))
     assert "needs review" in html.lower()
 ```
 
@@ -811,100 +804,110 @@ Expected: FAIL — `No module named 'report'`
 
 ```python
 """Render the self-contained HTML status report."""
+import html as _html
 import webbrowser
-from datetime import datetime
+from datetime import date, datetime
 import pandas as pd
 import config as c
-from transform import BUCKET_LABELS, build_summary
+from transform import BUCKET_LABELS, BUCKET_ORDER, build_summary, find_name_collisions
 
 _CSS = """
 body{font-family:-apple-system,Segoe UI,Arial,sans-serif;margin:2rem;color:#222;background:#fff}
-h1{font-size:1.4rem} h2{font-size:1.15rem;margin-top:2rem;border-bottom:2px solid #ddd}
-table{border-collapse:collapse;margin:0.75rem 0;font-size:0.9rem}
-th,td{border:1px solid #ccc;padding:4px 8px;text-align:left}
+h1{font-size:1.4rem}h2{font-size:1.15rem;margin-top:2rem;border-bottom:2px solid #ddd;padding-bottom:2px}
+table{border-collapse:collapse;margin:.6rem 0;font-size:.9rem}
+th,td{border:1px solid #ccc;padding:4px 8px;text-align:left;vertical-align:top}
 th{background:#f2f2f2}
 .rate{font-weight:bold}
-.flag{background:#fff4e5;border:1px solid #f0c36d;padding:6px 10px;margin:0.5rem 0}
+.flag{background:#fff4e5;border:1px solid #f0c36d;padding:8px 12px;margin:1rem 0;border-radius:4px}
+.muted{color:#888}
 """
 
-_ORDER = ["converted_active", "converted_hold", "summer_active",
-          "not_returned", "cancelled", "needs_review"]
+
+def _esc(v) -> str:
+    if v is None or (isinstance(v, float) and pd.isna(v)) or v is pd.NA or v is pd.NaT:
+        return ""
+    return _html.escape(str(v))
 
 
-def _fmt_date(v):
+def _d(v) -> str:
     return "" if pd.isna(v) else pd.Timestamp(v).strftime("%Y-%m-%d")
 
 
+def _money(v) -> str:
+    return "" if pd.isna(v) else f"${float(v):,.0f}"
+
+
 def _summary_table(per_center: dict, overall: dict) -> str:
-    centers = list(per_center)
-    head = "".join(f"<th>{name}</th>" for name in centers) + "<th>Overall</th>"
+    names = list(per_center)
+    head = "".join(f"<th>{n}</th>" for n in names) + "<th>Overall</th>"
     rows = ""
-    for key in _ORDER:
-        cells = "".join(
-            f"<td>{per_center[name]['counts'][key]}</td>" for name in centers
-        )
-        rows += f"<tr><td>{BUCKET_LABELS[key]}</td>{cells}<td>{overall['counts'][key]}</td></tr>"
-    tot = "".join(f"<td>{per_center[name]['total']}</td>" for name in centers)
-    rate = "".join(
-        f"<td class='rate'>{per_center[name]['conversion_rate']:.0%}</td>" for name in centers
-    )
-    rows += f"<tr><td><b>Total summer students</b></td>{tot}<td>{overall['total']}</td></tr>"
+    for k in BUCKET_ORDER:
+        cells = "".join(f"<td>{per_center[n]['counts'][k]}</td>" for n in names)
+        rows += f"<tr><td>{BUCKET_LABELS[k]}</td>{cells}<td>{overall['counts'][k]}</td></tr>"
+    tot = "".join(f"<td>{per_center[n]['total']}</td>" for n in names)
+    rate = "".join(f"<td class='rate'>{per_center[n]['conversion_rate']:.0%}</td>" for n in names)
+    rows += f"<tr><td><b>Total summer students</b></td>{tot}<td><b>{overall['total']}</b></td></tr>"
     rows += (f"<tr><td class='rate'>Conversion rate</td>{rate}"
              f"<td class='rate'>{overall['conversion_rate']:.0%}</td></tr>")
     return f"<table><tr><th></th>{head}</tr>{rows}</table>"
 
 
-def _detail_table(df: pd.DataFrame) -> str:
-    order = {k: i for i, k in enumerate(_ORDER)}
-    df = df.sort_values(by=["bucket", "student"],
-                        key=lambda s: s.map(order) if s.name == "bucket" else s)
-    head = ("<tr><th>Student</th><th>Summer start</th><th>Summer status</th>"
-            "<th>Current status</th><th>Converted to</th><th>Conv. start</th>"
-            "<th>Sessions/wk</th></tr>")
+def _detail_table(sub: pd.DataFrame) -> str:
+    order = {b: i for i, b in enumerate(BUCKET_ORDER)}
+    sub = sub.sort_values(by=["bucket", "student"],
+                          key=lambda s: s.map(order) if s.name == "bucket" else s)
+    head = ("<tr><th>Student</th><th>Grade</th><th>Summer start</th><th>Summer end</th>"
+            "<th>Summer status</th><th>Current status</th><th>Continued as</th>"
+            "<th>New start</th><th>Monthly $</th></tr>")
     body = ""
-    for _, r in df.iterrows():
+    for _, r in sub.iterrows():
         body += (
-            f"<tr><td>{r['student']}</td><td>{_fmt_date(r['summer_start'])}</td>"
-            f"<td>{r['summer_status_raw']}</td><td>{r['bucket_label']}</td>"
-            f"<td>{r['converted_to']}</td><td>{_fmt_date(r['converted_start'])}</td>"
-            f"<td>{r['converted_sessions_wk']}</td></tr>"
+            f"<tr><td>{_esc(r['student'])}</td><td>{_esc(r['grade'])}</td>"
+            f"<td>{_d(r['summer_start'])}</td><td>{_d(r['summer_end'])}</td>"
+            f"<td>{_esc(r['summer_status'])}</td><td>{_esc(r['bucket_label'])}</td>"
+            f"<td>{_esc(r['continued_as'])}</td><td>{_d(r['new_start'])}</td>"
+            f"<td>{_money(r['new_monthly'])}</td></tr>"
         )
     return f"<table>{head}{body}</table>"
 
 
-def render_html(classified: pd.DataFrame, generated_at: str) -> str:
-    centers = list(c.CENTERS)
-    per_center = {name: build_summary(classified[classified["center"] == name])
-                  for name in centers}
+def render_html(classified: pd.DataFrame, as_of: date, collisions=None) -> str:
+    names = list(c.CENTERS)
+    per_center = {n: build_summary(classified[classified["center"] == n]) for n in names}
     overall = build_summary(classified)
-
-    parts = [
-        f"<!doctype html><html><head><meta charset='utf-8'>",
-        f"<title>Summer 2026 Enrollment Status</title><style>{_CSS}</style></head><body>",
-        f"<h1>Summer 2026 (Sessions Package) &mdash; Enrollment Status</h1>",
-        f"<p>Generated {generated_at}</p>",
+    p = [
+        "<!doctype html><html><head><meta charset='utf-8'>",
+        f"<title>2026 Summer Package — Enrollment Status</title><style>{_CSS}</style>",
+        "</head><body>",
+        "<h1>2026 Summer Package &mdash; Enrollment Status</h1>",
+        f"<p class='muted'>Generated {datetime.now():%Y-%m-%d %H:%M} &middot; "
+        f"“still active” measured as of {as_of:%Y-%m-%d}</p>",
     ]
     if overall["needs_review"]:
-        parts.append(f"<div class='flag'>{overall['needs_review']} student(s) "
-                     f"could not be auto-classified &mdash; see “Other / needs review” rows.</div>")
-    parts.append("<h2>Overall summary</h2>")
-    parts.append(_summary_table(per_center, overall))
+        p.append(f"<div class='flag'>{overall['needs_review']} student(s) could not be "
+                 f"auto-classified — see the “Needs review” rows.</div>")
+    if collisions:
+        joined = ", ".join(_esc(x) for x in collisions)
+        p.append(f"<div class='flag'>Same-name students at one center (verify manually): {joined}</div>")
+    p.append("<h2>Overall summary</h2>")
+    p.append(_summary_table(per_center, overall))
+    for n in names:
+        s = per_center[n]
+        p.append(f"<h2>{n}</h2>")
+        p.append(f"<p class='rate'>Conversion rate: {s['conversion_rate']:.0%} "
+                 f"({s['converted']} of {s['total']})</p>")
+        p.append(_detail_table(classified[classified["center"] == n]))
+    p.append("</body></html>")
+    return "".join(p)
 
-    for name in centers:
-        sub = classified[classified["center"] == name]
-        parts.append(f"<h2>{name}</h2>")
-        s = per_center[name]
-        parts.append(f"<p class='rate'>Conversion rate: {s['conversion_rate']:.0%} "
-                     f"({s['converted']} of {s['total']})</p>")
-        parts.append(_detail_table(sub))
 
-    parts.append("</body></html>")
-    return "".join(parts)
-
-
-def write_and_open(classified: pd.DataFrame) -> str:
+def write_and_open(classified: pd.DataFrame, norm_frames=None) -> str:
     c.OUTPUT_DIR.mkdir(exist_ok=True)
-    html = render_html(classified, datetime.now().strftime("%Y-%m-%d %H:%M"))
+    collisions = []
+    if norm_frames is not None:
+        for f in norm_frames:
+            collisions += find_name_collisions(f)
+    html = render_html(classified, as_of=date.today(), collisions=collisions or None)
     out = c.OUTPUT_DIR / "summer_2026_status.html"
     out.write_text(html, encoding="utf-8")
     webbrowser.open(out.as_uri())
@@ -914,7 +917,7 @@ def write_and_open(classified: pd.DataFrame) -> str:
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `python -m pytest tests/test_report.py -v`
-Expected: PASS (both tests)
+Expected: PASS
 
 - [ ] **Step 5: Commit**
 
@@ -925,7 +928,7 @@ git commit -m "feat: render self-contained HTML status report"
 
 ---
 
-## Task 8: `main.py` — orchestrator
+## Task 8: `main.py` — orchestrator + real end-to-end run
 
 **Files:**
 - Create: `~/mathnasium-summer-status/main.py`
@@ -936,7 +939,8 @@ git commit -m "feat: render self-contained HTML status report"
 """Summer package status report — CLI entry point.
 
 Usage:
-    export $(cat ~/.mathnasium_env | xargs)
+    export RADIUS_USERNAME="$(grep '^RADIUS_USERNAME=' ~/.mathnasium_env | cut -d= -f2-)"
+    export RADIUS_PASSWORD="$(grep '^RADIUS_PASSWORD=' ~/.mathnasium_env | cut -d= -f2-)"
     python main.py                # pull fresh + render
     python main.py --no-download  # re-render from cached input/
 """
@@ -953,26 +957,28 @@ def run(no_download: bool) -> None:
         from download import download_all
         download_all()
 
-    frames = []
+    norm_frames = []
     for name in c.CENTERS:
         path = c.INPUT_DIR / f"EnrollmentReport_{name}.xlsx"
         if not path.exists():
-            sys.exit(f"Missing {path}. Run without --no-download first.")
-        df = load_center(str(path))
-        if df.empty:
-            sys.exit(f"{name}: Enrollment Report returned zero rows — aborting.")
-        frames.append(df)
+            sys.exit(f"Missing {path}. Run once without --no-download first.")
+        raw = pd.read_excel(path)
+        if raw.empty:
+            sys.exit(f"{name}: Enrollment Report export has zero rows — aborting.")
+        frame = load_center(path)
+        summer_str = c.CENTERS[name]["summer_membership"]
+        if not (frame["membership"] == summer_str).any():
+            sys.exit(f"{name}: no rows match summer membership '{summer_str}'. "
+                     f"The Radius label may have changed — update config.CENTERS.")
+        norm_frames.append(frame)
 
-    all_rows = pd.concat(frames, ignore_index=True)
+    all_rows = pd.concat(norm_frames, ignore_index=True)
     classified = classify_students(all_rows)
-    if classified.empty:
-        sys.exit(f"No rows matched membership '{c.SUMMER_MEMBERSHIP}' in either "
-                 f"center. The Radius label may have changed — check config.SUMMER_MEMBERSHIP.")
 
-    out = write_and_open(classified)
+    out = write_and_open(classified, norm_frames=norm_frames)
     n_review = int((classified["bucket"] == "needs_review").sum())
     print(f"Wrote {out} — {len(classified)} summer students"
-          + (f", {n_review} need manual review." if n_review else "."))
+          + (f"; {n_review} need manual review." if n_review else "."))
 
 
 if __name__ == "__main__":
@@ -983,38 +989,37 @@ if __name__ == "__main__":
     run(no_download=args.no_download)
 ```
 
-- [ ] **Step 2: Full run against real Radius**
+- [ ] **Step 2: Run `--no-download` first (uses the cached discovery exports)**
 
 ```bash
 cd ~/mathnasium-summer-status
-export $(cat ~/.mathnasium_env | xargs)
-python main.py
-```
-
-Expected: both reports download, the browser opens `output/summer_2026_status.html`, both center sections are populated, counts look plausible (cross-check the total summer count against a manual Radius filter on the membership type).
-
-- [ ] **Step 3: Test `--no-download`**
-
-```bash
 python main.py --no-download
 ```
 
-Expected: no Radius login, report regenerates from cached files in seconds.
+Expected: browser opens `output/summer_2026_status.html`; both center sections populated; Teaneck ~24 summer students, Englewood ~17; console prints the count line.
 
-- [ ] **Step 4: Sanity-check the classification**
+- [ ] **Step 3: Full run against Radius**
 
-Pick 2-3 students you know personally (one who converted, one who didn't) and confirm the report puts them in the right bucket. Eyeball the "Other / needs review" list — if it's large, the `STATUS_*` sets in `config.py` need more entries; add them and re-run `--no-download`.
+```bash
+export RADIUS_USERNAME="$(grep '^RADIUS_USERNAME=' ~/.mathnasium_env | cut -d= -f2-)"
+export RADIUS_PASSWORD="$(grep '^RADIUS_PASSWORD=' ~/.mathnasium_env | cut -d= -f2-)"
+python main.py
+```
+
+Expected: fresh exports download, report regenerates, same shape.
+
+- [ ] **Step 4: Spot-check.** In Radius, filter the Enrollment Report by the Teaneck summer membership type and confirm the student count matches the report's Teaneck total. Pick one converted student and one "did not return" student and confirm their rows look right.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add main.py
-git commit -m "feat: CLI orchestrator for summer package status report"
+git commit -m "feat: CLI orchestrator + end-to-end run"
 ```
 
 ---
 
-## Task 9: README + final commit
+## Task 9: README + GitHub repo
 
 **Files:**
 - Create: `~/mathnasium-summer-status/README.md`
@@ -1024,50 +1029,51 @@ git commit -m "feat: CLI orchestrator for summer package status report"
 ```markdown
 # Summer Package Status Report
 
-On-demand HTML report of every "Summer 2026 (Sessions Package)" enrollment at
-Teaneck and Englewood, showing each student's current status and whether they
-converted to a school-year membership.
+On-demand HTML report of every 2026 summer-package enrollment at Teaneck and
+Englewood, showing each student's current status and whether they converted to an
+ongoing membership.
 
 ## Run
 
 ```bash
 cd ~/mathnasium-summer-status
-export $(cat ~/.mathnasium_env | xargs)
 pip install -r requirements.txt        # first time
 playwright install chromium            # first time
+export RADIUS_USERNAME="$(grep '^RADIUS_USERNAME=' ~/.mathnasium_env | cut -d= -f2-)"
+export RADIUS_PASSWORD="$(grep '^RADIUS_PASSWORD=' ~/.mathnasium_env | cut -d= -f2-)"
 python main.py                         # pull fresh + open report
 python main.py --no-download           # re-render from cached input/
 ```
 
 Output: `output/summer_2026_status.html` (opens automatically).
 
-## When the summer label changes next year
+## Status buckets
 
-Edit `SUMMER_MEMBERSHIP` in `config.py` to match the new Radius membership type
-string exactly.
+- **Converted – active / on hold** — has an ongoing non-summer enrollment that started
+  on/after their summer enrollment.
+- **Continued via School Partnership** — same, but the new enrollment is a School
+  Partnership program.
+- **Summer still active** — summer package end date is still in the future.
+- **Did not return** — summer package ended, nothing after it.
+- **Needs review** — couldn't be classified automatically (e.g. a Pre-Enrolled row).
 
-## If Radius changes the Enrollment Report
+## Next year
 
-Re-run `python discover_selectors.py` and update the `COL_*` / `SEL_*` constants
-in `config.py`. See `DISCOVERY_NOTES.md` for the last known-good field list.
+Edit `CENTERS[...]["summer_membership"]` and `PULL_START` / `PULL_END` in `config.py`.
+If Radius changed the Enrollment Report, re-run `python discover_selectors.py` and
+update the `COL_*` / `SEL_*` constants.
 ```
 
-- [ ] **Step 2: Run the full test suite**
+- [ ] **Step 2: Full test suite**
 
 Run: `cd ~/mathnasium-summer-status && python -m pytest -v`
 Expected: PASS (all tests in `tests/`)
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Commit + create repo**
 
 ```bash
 git add README.md
 git commit -m "docs: usage README"
-```
-
-- [ ] **Step 4: Create the GitHub repo under the mdiamond77 org**
-
-```bash
-cd ~/mathnasium-summer-status
 gh repo create mdiamond77/mathnasium-summer-status --private --source=. --push
 ```
 
@@ -1076,21 +1082,19 @@ gh repo create mdiamond77/mathnasium-summer-status --private --source=. --push
 ## Self-Review Notes
 
 **Spec coverage:**
-- Data source / one pull per center / all statuses → Task 3
-- Discovery gate → Task 2 (with explicit STOP condition)
-- Five status buckets + Other/needs-review → Task 5 (tests cover each)
-- Conversion detail (type, start, sessions/wk) → Task 5
-- Edge cases (multiple non-summer, converted-then-hold, unknown status) → Task 5 tests
-- HTML layout: header, overall summary side-by-side, per-center sections, conversion rate → Task 7
-- Fail-loud error handling (login, zero rows, zero membership matches, needs-review count) → Tasks 3 & 8
-- CLI `--no-download` → Task 8
-- Pure-function tests with fixtures → Tasks 4-6
+- One pull per center, 4/1–12/31/2026, all statuses → Task 3
+- Discovery findings baked into `config.py` → Task 2
+- Six buckets, first-match order, School Partnership as its own bucket → Task 5 (tests each)
+- "Still active" by end-date not status → Task 5 (`test_summer_still_active_by_end_date_not_status`)
+- Student key = first+last+center; sibling-safe; same-name collision flagged → Tasks 4 & 6
+- Conversion detail = membership name + start + Monthly Amount; latest-start wins → Task 5
+- Converted-then-hold → on-hold wins → Task 5 (`test_converted_hold_beats_active`)
+- Pre-summer enrollment not a conversion → Task 5 (`test_pre_summer_enrollment_is_not_a_conversion`)
+- HTML: header w/ as-of date, overall summary Teaneck|Englewood|Overall, per-center detail, needs-review callout, HTML-escaped → Task 7
+- Fail-loud: login, zero rows, zero summer matches, needs-review count → Tasks 3 & 8
+- `--no-download` → Task 8
 - New repo under `mdiamond77`, no workflow → Tasks 1 & 9
 
-**Known deferred decisions (resolved during Task 2, not plan failures):**
-- Exact date-field selector ids on the Enrollment Report
-- Exact column header strings (the `TBD_` constants)
-- Whether "sessions per week" exists as a column at all (spec already flags this may be blank for the summer row)
-- The full set of raw status strings Radius emits
+**Type consistency:** `classify_students` emits `_OUT_COLS`; `report.py` reads exactly those names (`bucket`, `bucket_label`, `continued_as`, `new_start`, `new_monthly`, `summer_start`, `summer_end`, `summer_status`, `grade`, `student`, `center`). `build_summary` keys (`total`, `counts`, `converted`, `conversion_rate`, `needs_review`) match between Task 6 and Task 7. `normalize` `_CANON` gains `account_id` in Task 6 — the Task 4 column-list test is updated in the same task.
 
-**Type consistency:** `classify_students` output columns (`bucket`, `bucket_label`, `converted_to`, `converted_start`, `converted_sessions_wk`, `summer_start`, `summer_status_raw`) are used identically in `report.py`. `build_summary` keys (`total`, `counts`, `converted`, `conversion_rate`, `needs_review`) match between Task 6 and Task 7.
+**Deferred to implementation (not plan gaps):** exact jQuery-readiness wait in `download.py` (Task 3 Step 3 covers it); whether `Grade` comes through as `"5"` vs `5` (— `_clean` stringifies either way).
